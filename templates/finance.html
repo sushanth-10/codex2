@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Finance - BizAssist AI{% endblock %}
+{% block content %}
+<h1 class="page-title">Finance Management</h1>
+<p class="page-subtitle">Track expenses, monitor profit, and forecast future cash flow.</p>
+
+<div class="ai-box">
+    <b>AI Financial Insight</b>
+    <p>Revenue forecast for next month is <b>{{ forecast_revenue|inr }}</b> with better margin if non-essential expenses are optimized.</p>
+</div>
+
+<div class="cards">
+    <div class="card"><h3>Monthly Revenue</h3><div class="metric">{{ monthly_revenue|inr }}</div></div>
+    <div class="card"><h3>Total Expenses</h3><div class="metric">{{ monthly_expenses|inr }}</div></div>
+    <div class="card"><h3>Net Profit</h3><div class="metric">{{ metrics.net_profit|inr }}</div></div>
+    <div class="card"><h3>Forecasted Revenue</h3><div class="metric">{{ forecast_revenue|inr }}</div></div>
+</div>
+
+<div class="panel">
+    <h3 class="section-title">Add Expense</h3>
+    <form method="post" class="form-grid">
+        <input class="input" name="category" placeholder="Category" required>
+        <input class="input" name="description" placeholder="Description" required>
+        <input class="input" type="number" step="0.01" name="amount" placeholder="Amount (₹)" required>
+        <input class="input" type="date" name="expense_date">
+        <button class="btn btn-primary" type="submit">Save Expense</button>
+    </form>
+</div>
+
+<div class="row">
+    <div class="panel">
+        <h3 class="section-title">Expense Records</h3>
+        <table>
+            <thead><tr><th>Category</th><th>Description</th><th>Amount</th><th>Date</th></tr></thead>
+            <tbody>
+                {% for expense in expenses %}
+                <tr>
+                    <td>{{ expense["category"] }}</td>
+                    <td>{{ expense["description"] }}</td>
+                    <td>{{ expense["amount"]|inr }}</td>
+                    <td>{{ expense["expense_date"] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div>
+        <div class="panel">
+            <h3 class="section-title">Expense Breakdown</h3>
+            <canvas id="expenseChart" height="220"></canvas>
+        </div>
+        <div class="panel">
+            <h3 class="section-title">Next Month Forecast</h3>
+            <p class="muted">Expected Revenue: <b>{{ forecast_revenue|inr }}</b></p>
+            <p class="muted">Expected Expenses: <b>{{ forecast_expenses|inr }}</b></p>
+        </div>
+    </div>
+</div>
+
+<script>
+const labels = {{ expense_breakdown | map(attribute='category') | list | tojson }};
+const totals = {{ expense_breakdown | map(attribute='total') | list | tojson }};
+new Chart(document.getElementById("expenseChart"), {
+    type: "doughnut",
+    data: { labels, datasets: [{ data: totals }] },
+    options: { plugins: { legend: { position: "bottom" } } }
+});
+</script>
+{% endblock %}
