@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Orders - BizAssist AI{% endblock %}
+{% block content %}
+<h1 class="page-title">Order Management</h1>
+<p class="page-subtitle">Track all incoming orders and update fulfillment status.</p>
+
+<div class="panel">
+    <h3 class="section-title">Add New Order</h3>
+    <form method="post" class="form-grid">
+        <input class="input" name="customer_name" placeholder="Customer Name" required>
+        <input class="input" type="number" name="items_count" min="1" placeholder="Items Count" required>
+        <input class="input" type="number" step="0.01" name="total_amount" placeholder="Total Amount (₹)" required>
+        <input class="input" type="date" name="order_date">
+        <select name="status">
+            <option>Pending</option><option>Processing</option><option>Shipped</option><option>Delivered</option>
+        </select>
+        <select name="priority">
+            <option>Low</option><option>Medium</option><option>High</option>
+        </select>
+        <button class="btn btn-primary" type="submit">Create Order</button>
+    </form>
+</div>
+
+<div class="panel">
+    <form method="get" class="form-grid">
+        <input class="input" name="q" value="{{ q }}" placeholder="Search by order ID or customer">
+        <select name="status">
+            <option value="">All Statuses</option>
+            {% for st in ["Pending", "Processing", "Shipped", "Delivered"] %}
+            <option value="{{ st }}" {% if selected_status == st %}selected{% endif %}>{{ st }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-secondary" type="submit">Filter</button>
+        <a class="btn btn-secondary" href="/orders">Reset</a>
+    </form>
+</div>
+
+<div class="panel">
+    <h3 class="section-title">Recent Orders</h3>
+    <table>
+        <thead>
+            <tr><th>Order ID</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Priority</th><th>Date</th><th>Update</th></tr>
+        </thead>
+        <tbody>
+            {% for order in orders %}
+            <tr>
+                <td>{{ order["order_code"] }}</td>
+                <td>{{ order["customer_name"] }}</td>
+                <td>{{ order["items_count"] }}</td>
+                <td>{{ order["total_amount"]|inr }}</td>
+                <td>
+                    <span class="status {% if order['status'] == 'Delivered' %}status-green{% elif order['status'] == 'Shipped' %}status-blue{% elif order['status'] == 'Processing' %}status-yellow{% else %}status-red{% endif %}">
+                        {{ order["status"] }}
+                    </span>
+                </td>
+                <td>{{ order["priority"] }}</td>
+                <td>{{ order["order_date"] }}</td>
+                <td>
+                    <form method="post" action="/orders/{{ order['id'] }}/status" style="display:flex; gap:6px;">
+                        <select name="status">
+                            <option {% if order["status"] == "Pending" %}selected{% endif %}>Pending</option>
+                            <option {% if order["status"] == "Processing" %}selected{% endif %}>Processing</option>
+                            <option {% if order["status"] == "Shipped" %}selected{% endif %}>Shipped</option>
+                            <option {% if order["status"] == "Delivered" %}selected{% endif %}>Delivered</option>
+                        </select>
+                        <button class="btn btn-secondary" type="submit">Save</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

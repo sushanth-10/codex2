@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Login - BizAssist AI</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", sans-serif; }
+        body {
+            min-height: 100vh;
+            background: linear-gradient(160deg, #eef2ff, #f8fafc);
+            display: grid;
+            place-items: center;
+            padding: 20px;
+        }
+        .card {
+            width: min(980px, 100%);
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+            overflow: hidden;
+        }
+        .header {
+            padding: 20px;
+            background: #eef2ff;
+            border-bottom: 1px solid #dbeafe;
+        }
+        .header h1 { font-size: 28px; margin-bottom: 6px; }
+        .header p { color: #475569; }
+        .content { padding: 20px; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        label { font-size: 13px; color: #475569; display: block; margin-bottom: 6px; }
+        input, select {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 10px;
+            font-size: 14px;
+            background: #fff;
+        }
+        .full { grid-column: 1 / -1; }
+        .section-title {
+            margin: 18px 0 10px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        .actions { margin-top: 18px; display: flex; justify-content: flex-end; }
+        button {
+            border: none;
+            background: #2563eb;
+            color: #fff;
+            padding: 11px 16px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .hint { color: #64748b; font-size: 13px; margin-top: 10px; }
+        @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <h1>Business Onboarding / Login</h1>
+            <p>Enter shop/business and financial details. Net profit and all graphs will calculate from this data.</p>
+        </div>
+        <div class="content">
+            <form method="post">
+                <div class="section-title">Personal & Business Details</div>
+                <div class="grid">
+                    <div>
+                        <label>Owner Full Name</label>
+                        <input name="owner_name" required value="{{ profile['owner_name'] if profile else '' }}">
+                    </div>
+                    <div>
+                        <label>Shop / Business Name</label>
+                        <input name="business_name" required value="{{ profile['business_name'] if profile else '' }}">
+                    </div>
+                    <div>
+                        <label>Email</label>
+                        <input type="email" name="email" required value="{{ profile['email'] if profile else '' }}">
+                    </div>
+                    <div>
+                        <label>Phone</label>
+                        <input name="phone" required value="{{ profile['phone'] if profile else '' }}">
+                    </div>
+                    <div class="full">
+                        <label>Shop / Business Type</label>
+                        <select name="business_type" required>
+                            {% set selected_type = profile['business_type'] if profile else '' %}
+                            {% for t in ['Retail', 'E-commerce', 'Service', 'Restaurant', 'Manufacturing', 'Other'] %}
+                            <option value="{{ t }}" {% if selected_type == t %}selected{% endif %}>{{ t }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="section-title">Marketing / Financial Status</div>
+                <div class="grid">
+                    <div>
+                        <label>Current Monthly Revenue (₹)</label>
+                        <input type="number" step="0.01" name="monthly_revenue" required value="{{ profile['monthly_revenue'] if profile else '' }}">
+                    </div>
+                    <div>
+                        <label>Current Monthly Expenses (₹)</label>
+                        <input type="number" step="0.01" name="monthly_expenses" required value="{{ profile['monthly_expenses'] if profile else '' }}">
+                    </div>
+                    <div>
+                        <label>Monthly Marketing Spend (₹)</label>
+                        <input type="number" step="0.01" name="marketing_spend" required value="{{ profile['marketing_spend'] if profile else '' }}">
+                    </div>
+                    <div>
+                        <label>Growth Target (%)</label>
+                        <input type="number" step="0.01" name="growth_target" required value="{{ profile['growth_target'] if profile else '' }}">
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Save and Continue</button>
+                </div>
+                <p class="hint">You can edit these details later from the "Business Profile" menu in the sidebar.</p>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

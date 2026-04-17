@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}AI Assistant - BizAssist AI{% endblock %}
+{% block content %}
+<h1 class="page-title">Chat Assistant</h1>
+<p class="page-subtitle">Ask business questions and receive data-aware recommendations.</p>
+
+<div class="panel">
+    <div class="chat-feed">
+        {% for msg in messages %}
+        <div class="msg {{ msg['role'] }}">
+            <b>{{ "You" if msg["role"] == "user" else "AI Assistant" }}</b>
+            <div>{{ msg["message"] }}</div>
+            <small>{{ msg["created_at"] }}</small>
+        </div>
+        {% endfor %}
+    </div>
+    <form method="post" style="display:flex; gap:8px;">
+        <input class="input" name="message" placeholder="Ask about inventory, orders, finance, growth strategy..." required>
+        <button class="btn btn-primary" type="submit">Send</button>
+    </form>
+</div>
+
+<div class="panel">
+    <h3 class="section-title">Business Context Used by AI</h3>
+    <div class="cards">
+        <div class="card"><h3>Revenue</h3><div class="metric">{{ metrics.revenue|inr }}</div></div>
+        <div class="card"><h3>Net Profit</h3><div class="metric">{{ metrics.net_profit|inr }}</div></div>
+        <div class="card"><h3>Low Stock</h3><div class="metric">{{ metrics.low_stock }}</div></div>
+        <div class="card"><h3>VIP Customers</h3><div class="metric">{{ metrics.vip_customers }}</div></div>
+    </div>
+</div>
+{% endblock %}

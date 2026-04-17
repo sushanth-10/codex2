@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Customers - BizAssist AI{% endblock %}
+{% block content %}
+<h1 class="page-title">Customer Management</h1>
+<p class="page-subtitle">Capture customer details to power segmentation and insights.</p>
+
+<div class="cards">
+    <div class="card"><h3>Total Customers</h3><div class="metric">{{ metrics.total_customers }}</div></div>
+    <div class="card"><h3>VIP Customers</h3><div class="metric">{{ metrics.vip_customers }}</div></div>
+    <div class="card"><h3>Avg Customer Value</h3><div class="metric">{{ metrics.avg_customer_value|inr }}</div></div>
+    <div class="card"><h3>Revenue Impact</h3><div class="metric">{{ metrics.revenue|inr }}</div></div>
+</div>
+
+<div class="panel">
+    <h3 class="section-title">Add Customer</h3>
+    <form method="post" class="form-grid">
+        <input class="input" name="name" placeholder="Customer Name" required>
+        <input class="input" type="email" name="email" placeholder="Email" required>
+        <input class="input" name="phone" placeholder="Phone" required>
+        <select name="segment"><option>VIP</option><option>Regular</option><option>New</option><option>At Risk</option></select>
+        <input class="input" type="number" name="total_orders" placeholder="Total Orders" required>
+        <input class="input" type="number" step="0.01" name="total_spent" placeholder="Total Spent (₹)" required>
+        <input class="input" type="date" name="last_purchase">
+        <button class="btn btn-primary" type="submit">Save Customer</button>
+    </form>
+</div>
+
+<div class="panel">
+    <h3 class="section-title">Customer List</h3>
+    <table>
+        <thead><tr><th>Customer</th><th>Contact</th><th>Segment</th><th>Total Orders</th><th>Total Spent</th><th>Last Purchase</th></tr></thead>
+        <tbody>
+            {% for c in customers %}
+            <tr>
+                <td><b>{{ c["name"] }}</b></td>
+                <td>{{ c["email"] }}<br>{{ c["phone"] }}</td>
+                <td><span class="status {% if c['segment'] == 'VIP' %}status-yellow{% elif c['segment'] == 'Regular' %}status-blue{% else %}status-green{% endif %}">{{ c["segment"] }}</span></td>
+                <td>{{ c["total_orders"] }}</td>
+                <td>{{ c["total_spent"]|inr }}</td>
+                <td>{{ c["last_purchase"] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

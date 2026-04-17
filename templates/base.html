@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BizAssist AI{% endblock %}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", sans-serif; }
+        body { background: #f6f8fb; color: #111827; }
+        .app { display: flex; min-height: 100vh; }
+        .sidebar { width: 240px; background: #fff; border-right: 1px solid #e5e7eb; padding: 20px; position: sticky; top: 0; height: 100vh; }
+        .logo { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
+        .logo-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, #4f46e5, #9333ea); }
+        .logo small { color: #6b7280; }
+        .nav a { display: block; text-decoration: none; color: #374151; padding: 10px 12px; border-radius: 10px; margin-bottom: 8px; }
+        .nav a.active { background: #e8eeff; color: #1f3bc9; font-weight: 600; }
+        .promo { margin-top: 20px; background: #eef2ff; border-radius: 12px; padding: 14px; color: #374151; font-size: 14px; }
+        .content { flex: 1; padding: 24px; }
+        .topbar { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-bottom: 16px; }
+        .pill { background: #dcfce7; color: #166534; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+        .avatar { width: 36px; height: 36px; border-radius: 50%; background: #6366f1; color: #fff; display: grid; place-items: center; font-weight: 700; }
+        .page-title { margin-bottom: 6px; font-size: 36px; }
+        .page-subtitle { color: #6b7280; margin-bottom: 18px; }
+        .ai-box { background: #e8f1ff; border: 1px solid #c6dbff; border-radius: 14px; padding: 16px; margin-bottom: 18px; }
+        .cards { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 14px; margin-bottom: 18px; }
+        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; }
+        .card h3 { font-size: 14px; color: #6b7280; margin-bottom: 8px; font-weight: 500; }
+        .metric { font-size: 30px; font-weight: 700; }
+        .muted { color: #6b7280; font-size: 13px; }
+        .row { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 14px; }
+        .section-title { margin-bottom: 10px; font-size: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+        th { color: #6b7280; font-size: 13px; font-weight: 600; }
+        .status { padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .status-green { background: #dcfce7; color: #166534; }
+        .status-blue { background: #dbeafe; color: #1e40af; }
+        .status-yellow { background: #fef9c3; color: #854d0e; }
+        .status-red { background: #fee2e2; color: #b91c1c; }
+        .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+        .form-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; }
+        .input, select, textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 9px; padding: 10px; font-size: 14px; background: #fff; }
+        textarea { resize: vertical; min-height: 80px; }
+        .btn { border: none; border-radius: 9px; padding: 10px 12px; cursor: pointer; font-weight: 600; }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-secondary { background: #eef2ff; color: #3730a3; }
+        .btn-green { background: #22c55e; color: #fff; }
+        .right { text-align: right; }
+        .quick > div { border-radius: 10px; padding: 12px; margin-bottom: 10px; border: 1px solid transparent; }
+        .quick .warn { background: #fffbeb; border-color: #fef08a; }
+        .quick .info { background: #eff6ff; border-color: #bfdbfe; }
+        .quick .campaign { background: #f5f3ff; border-color: #ddd6fe; }
+        .chat-feed { max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+        .msg { border-radius: 10px; padding: 10px 12px; max-width: 75%; }
+        .msg.user { background: #dbeafe; align-self: flex-end; }
+        .msg.assistant { background: #f3f4f6; align-self: flex-start; }
+        .msg small { display: block; margin-top: 6px; color: #6b7280; font-size: 11px; }
+        @media (max-width: 1100px) {
+            .cards { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+            .row { grid-template-columns: 1fr; }
+            .form-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="logo">
+            <div class="logo-icon"></div>
+            <div>
+                <div><b>BizAssist AI</b></div>
+                <small>Smart Business</small>
+            </div>
+        </div>
+        <nav class="nav">
+            <a href="/dashboard" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
+            <a href="/inventory" class="{{ 'active' if active_page == 'inventory' else '' }}">Inventory</a>
+            <a href="/orders" class="{{ 'active' if active_page == 'orders' else '' }}">Orders</a>
+            <a href="/marketing" class="{{ 'active' if active_page == 'marketing' else '' }}">Marketing</a>
+            <a href="/finance" class="{{ 'active' if active_page == 'finance' else '' }}">Finance</a>
+            <a href="/customers" class="{{ 'active' if active_page == 'customers' else '' }}">Customers</a>
+            <a href="/assistant" class="{{ 'active' if active_page == 'assistant' else '' }}">AI Assistant</a>
+            <a href="/login">Business Profile</a>
+        </nav>
+        <div class="promo">
+            <b>AI Powered</b>
+            <p>Your intelligent business companion for growth and efficiency.</p>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div class="topbar">
+            <span class="pill">AI Active</span>
+            <div>{{ business_name }}<br><span class="muted">{{ owner_name }}</span></div>
+            <div class="avatar">{{ avatar_text }}</div>
+        </div>
+        {% block content %}{% endblock %}
+    </main>
+</div>
+</body>
+</html>
