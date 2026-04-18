@@ -39,11 +39,7 @@
     <h3 class="section-title">Recent Orders</h3>
     <table>
         <thead>
-<<<<<<< HEAD
-            <tr><th>Order ID</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Priority</th><th>Date</th><th>Update</th></tr>
-=======
             <tr><th>Order ID</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th><th>Priority</th><th>Date</th><th>Update</th><th>Delete</th></tr>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
         </thead>
         <tbody>
             {% for order in orders %}
@@ -70,14 +66,11 @@
                         <button class="btn btn-secondary" type="submit">Save</button>
                     </form>
                 </td>
-<<<<<<< HEAD
-=======
                 <td>
                     <form method="post" action="/orders/delete/{{ order['id'] }}" onsubmit="return confirm('Delete this order?');">
                         <button class="btn btn-secondary" type="submit">Delete</button>
                     </form>
                 </td>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
             </tr>
             {% endfor %}
         </tbody>

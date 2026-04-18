@@ -13,25 +13,17 @@
 
 <div class="panel">
     <h3 class="section-title">Add Customer</h3>
-<<<<<<< HEAD
-    <form method="post" class="form-grid">
-=======
     <form method="post" class="form-grid" id="customer-form">
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
         <input class="input" name="name" placeholder="Customer Name" required>
         <input class="input" type="email" name="email" placeholder="Email" required>
         <input class="input" name="phone" placeholder="Phone" required>
         <select name="segment"><option>VIP</option><option>Regular</option><option>New</option><option>At Risk</option></select>
         <input class="input" type="number" name="total_orders" placeholder="Total Orders" required>
-<<<<<<< HEAD
-        <input class="input" type="number" step="0.01" name="total_spent" placeholder="Total Spent (₹)" required>
-=======
         <div style="display:flex; gap:8px;">
             <input class="input" type="number" step="0.01" min="0" id="total-spent" name="total_spent" placeholder="Total Spent (₹)" required>
             <button class="btn btn-secondary" type="button" id="add-spent-btn">+</button>
         </div>
         <input class="input" type="number" step="0.01" min="0" id="spent-to-add" placeholder="Add Amount (₹)">
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
         <input class="input" type="date" name="last_purchase">
         <button class="btn btn-primary" type="submit">Save Customer</button>
     </form>
@@ -40,11 +32,7 @@
 <div class="panel">
     <h3 class="section-title">Customer List</h3>
     <table>
-<<<<<<< HEAD
-        <thead><tr><th>Customer</th><th>Contact</th><th>Segment</th><th>Total Orders</th><th>Total Spent</th><th>Last Purchase</th></tr></thead>
-=======
         <thead><tr><th>Customer</th><th>Contact</th><th>Segment</th><th>Total Orders</th><th>Total Spent</th><th>Last Purchase</th><th>Delete</th></tr></thead>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
         <tbody>
             {% for c in customers %}
             <tr>
@@ -54,21 +42,16 @@
                 <td>{{ c["total_orders"] }}</td>
                 <td>{{ c["total_spent"]|inr }}</td>
                 <td>{{ c["last_purchase"] }}</td>
-<<<<<<< HEAD
-=======
                 <td>
                     <form method="post" action="/customers/delete/{{ c['id'] }}" onsubmit="return confirm('Delete this customer?');">
                         <button class="btn btn-secondary" type="submit">Delete</button>
                     </form>
                 </td>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
-<<<<<<< HEAD
-=======
 <script>
     const totalSpentInput = document.getElementById("total-spent");
     const spentToAddInput = document.getElementById("spent-to-add");
@@ -84,5 +67,4 @@
         });
     }
 </script>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
 {% endblock %}

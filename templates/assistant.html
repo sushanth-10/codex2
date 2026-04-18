@@ -1,20 +1,10 @@
-{% extends "base.html" %}
+ {% extends "base.html" %}
 {% block title %}AI Assistant - BizAssist AI{% endblock %}
 {% block content %}
-<<<<<<< HEAD
+ 
 <h1 class="page-title">Chat Assistant</h1>
 <p class="page-subtitle">Ask business questions and receive data-aware recommendations.</p>
-=======
-<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-    <div>
-        <h1 class="page-title">Chat Assistant</h1>
-        <p class="page-subtitle">Ask business questions and receive data-aware recommendations.</p>
-    </div>
-    <form method="post" action="{{ url_for('assistant_reset') }}" onsubmit="return confirm('Clear all chat messages?');" style="margin-top:4px;">
-        <button class="btn btn-secondary" type="submit">Reset chat</button>
-    </form>
-</div>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
+
 
 <div class="panel">
     <div class="chat-feed">
@@ -26,17 +16,30 @@
         </div>
         {% endfor %}
     </div>
-<<<<<<< HEAD
     <form method="post" style="display:flex; gap:8px;">
         <input class="input" name="message" placeholder="Ask about inventory, orders, finance, growth strategy..." required>
-=======
-    <form method="post" style="display:flex; gap:8px;" id="assistant-form">
-        <input class="input" id="assistant-message" name="message" placeholder="Ask about inventory, orders, finance, growth strategy..." required>
-        <button class="btn btn-secondary" type="button" id="mic-btn" title="Speak your question">Mic</button>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
         <button class="btn btn-primary" type="submit">Send</button>
     </form>
+    <button onclick="startVoice()">🎤</button>
 </div>
+ 
+
+<script>
+function startVoice() {
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.start();
+
+    recognition.onresult = function(event) {
+        const text = event.results[0][0].transcript;
+
+        fetch('/voice_assistant', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: text})
+        }).then(() => location.reload());
+    };
+}
+</script>
 
 <div class="panel">
     <h3 class="section-title">Business Context Used by AI</h3>
@@ -47,43 +50,5 @@
         <div class="card"><h3>VIP Customers</h3><div class="metric">{{ metrics.vip_customers }}</div></div>
     </div>
 </div>
-<<<<<<< HEAD
-=======
-<script>
-    const micBtn = document.getElementById("mic-btn");
-    const messageInput = document.getElementById("assistant-message");
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-        if (micBtn) {
-            micBtn.disabled = true;
-            micBtn.textContent = "Mic N/A";
-        }
-    } else if (micBtn && messageInput) {
-        const recognition = new SpeechRecognition();
-        recognition.lang = "en-IN";
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        recognition.addEventListener("result", (event) => {
-            const transcript = event.results[0][0].transcript || "";
-            messageInput.value = transcript.trim();
-            messageInput.focus();
-        });
-
-        recognition.addEventListener("start", () => {
-            micBtn.textContent = "Listening...";
-        });
-
-        recognition.addEventListener("end", () => {
-            micBtn.textContent = "Mic";
-        });
-
-        micBtn.addEventListener("click", () => {
-            recognition.start();
-        });
-    }
-
-</script>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
 {% endblock %}
+ 

@@ -6,7 +6,152 @@ import google.generativeai as genai
 from flask import Flask, redirect, render_template, request, url_for
 
 app = Flask(__name__)
+import json
+from openai import OpenAI
+from flask import jsonify
+'''client = OpenAI(api_key="    ")'''
 
+def ai_extract_command(text):
+    prompt = f"""
+    You are a smart business assistant.
+
+    Extract intent and data from user input.
+
+    Supported intents:
+    - add_customer
+    - update_customer
+    - add_order
+    - add_expense
+
+    Return JSON ONLY:
+    {{
+        "intent": "",
+        "name": "",
+        "email": "",
+        "phone": "",
+        "segment": "",
+        "items": 0,
+        "amount": 0
+    }}
+
+    Input: {text}
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return json.loads(response.choices[0].message.content)
+
+@app.route("/voice_assistant", methods=["POST"])
+def voice_assistant():
+    conn = get_db_connection()
+    data = request.get_json()
+    user_message = data.get("message", "")
+
+    now = datetime.now().isoformat(timespec="seconds")
+
+    conn.execute(
+        "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
+        ("user", user_message, now),
+    )
+
+    try:
+        command = ai_extract_command(user_message)
+        intent = command.get("intent")
+
+        response = "Done."
+
+        # ADD CUSTOMER
+        if intent == "add_customer":
+            conn.execute(
+                """
+                INSERT INTO customers
+                (name, email, phone, segment, total_orders, total_spent, last_purchase)
+                VALUES (?, ?, ?, ?, 0, 0, ?)
+                """,
+                (
+                    command["name"],
+                    command["email"],
+                    command["phone"],
+                    command.get("segment", "New"),
+                    date.today().isoformat(),
+                ),
+            )
+            response = f"Customer {command['name']} added."
+
+        # UPDATE CUSTOMER
+        elif intent == "update_customer":
+            conn.execute(
+                """
+                UPDATE customers
+                SET email = COALESCE(?, email),
+                    phone = COALESCE(?, phone),
+                    segment = COALESCE(?, segment)
+                WHERE name = ?
+                """,
+                (
+                    command.get("email"),
+                    command.get("phone"),
+                    command.get("segment"),
+                    command["name"],
+                ),
+            )
+            response = f"Customer {command['name']} updated."
+
+        # ADD ORDER
+        elif intent == "add_order":
+            conn.execute(
+                """
+                INSERT INTO orders
+                (order_code, customer_name, items_count, total_amount, status, priority, order_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"ORD-{int(datetime.now().timestamp())}",
+                    command["name"],
+                    command.get("items", 1),
+                    command.get("amount", 0),
+                    "Pending",
+                    "Medium",
+                    date.today().isoformat(),
+                ),
+            )
+            response = "Order added."
+
+        # ADD EXPENSE
+        elif intent == "add_expense":
+            conn.execute(
+                """
+                INSERT INTO expenses (category, description, amount, expense_date)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    "General",
+                    "Voice entry",
+                    command.get("amount", 0),
+                    date.today().isoformat(),
+                ),
+            )
+            response = "Expense added."
+
+        else:
+            metrics = query_metrics(conn)
+            response = f"Revenue {format_inr(metrics['revenue'])}, Profit {format_inr(metrics['net_profit'])}"
+
+    except Exception:
+        response = "Sorry, I couldn't understand."
+
+    conn.execute(
+        "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
+        ("assistant", response, now),
+    )
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"reply": response})
 app.config["GEMINI_API_KEY"] = ""
 app.config["GEMINI_MODEL"] = "gemini-pro"
 
@@ -949,7 +1094,7 @@ def delete_customer(customer_id):
     return redirect(url_for("customers"))
 
 
-@app.post("/assistant/reset")
+'''@app.post("/assistant/reset")
 def assistant_reset():
     if not business_profile_required():
         return redirect(url_for("login"))
@@ -1000,7 +1145,46 @@ def assistant():
         active_page="assistant",
         messages=messages,
         metrics=metrics,
+    )'''
+
+@app.route("/assistant", methods=["GET", "POST"])
+def assistant():
+    conn = get_db_connection()
+    if request.method == "POST":
+        user_message = request.form["message"].strip()
+        if user_message:
+            now = datetime.now().isoformat(timespec="seconds")
+            conn.execute(
+                "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
+                ("user", user_message, now),
+            )
+            metrics = query_metrics(conn)
+            response = (
+                f"Current snapshot: Revenue {format_inr(metrics['revenue'])}, "
+                f"Net Profit {format_inr(metrics['net_profit'])}, "
+                f"Low Stock Alerts {metrics['low_stock']}, Active Orders {metrics['active_orders']}. "
+                "Add or update records in Inventory, Orders, Customers, and Finance tabs for smarter recommendations."
+            )
+            conn.execute(
+                "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
+                ("assistant", response, now),
+            )
+            conn.commit()
+        return redirect(url_for("assistant"))
+
+    messages = conn.execute(
+        "SELECT * FROM assistant_messages ORDER BY id ASC LIMIT 30"
+    ).fetchall()
+    metrics = query_metrics(conn)
+    conn.close()
+    return render_template(
+        "assistant.html",
+        active_page="assistant",
+        messages=messages,
+        metrics=metrics,
     )
+
+
 
 
 init_db()

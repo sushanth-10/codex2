@@ -15,10 +15,6 @@
     <h3 class="section-title">Add Product</h3>
     <form method="post" class="form-grid">
         <input class="input" name="name" placeholder="Product Name" required>
-<<<<<<< HEAD
-        <input class="input" name="sku" placeholder="SKU (e.g. PR-101)" required>
-        <input class="input" name="category" placeholder="Category" required>
-=======
         <input class="input" name="sku" list="sku-options" placeholder="SKU (e.g. PR-101 or NONE)" required>
         <datalist id="sku-options">
             <option value="NONE"></option>
@@ -35,7 +31,6 @@
             <option value="Health"></option>
             <option value="Grocery"></option>
         </datalist>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
         <input class="input" type="number" name="stock" placeholder="Stock" required>
         <input class="input" type="number" name="reorder_level" placeholder="Reorder Level" required>
         <input class="input" type="number" step="0.01" name="price" placeholder="Price (₹)" required>
@@ -63,11 +58,7 @@
     <table>
         <thead>
             <tr>
-<<<<<<< HEAD
-                <th>Product</th><th>SKU</th><th>Category</th><th>Stock</th><th>Price</th><th>Status</th><th>Last Restocked</th><th>Action</th>
-=======
                 <th>Product</th><th>SKU</th><th>Category</th><th>Stock</th><th>Price</th><th>Status</th><th>Last Restocked</th><th>Last Qty</th><th>Actions</th>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
             </tr>
         </thead>
         <tbody>
@@ -84,11 +75,6 @@
                 </td>
                 <td>{{ product["last_restocked"] }}</td>
                 <td>
-<<<<<<< HEAD
-                    <form method="post" action="/inventory/restock/{{ product['id'] }}">
-                        <button type="submit" class="btn btn-secondary">Restock</button>
-                    </form>
-=======
                     {{ product["last_restock_amount"] if "last_restock_amount" in product.keys() else 0 }}
                 </td>
                 <td style="display:flex; gap:6px;">
@@ -99,7 +85,6 @@
                     <form method="post" action="/inventory/delete/{{ product['id'] }}" onsubmit="return confirm('Delete this product?');">
                         <button type="submit" class="btn btn-secondary">Delete</button>
                     </form>
->>>>>>> bc433ab407f9b4575ed5658b6ade2b5350820ea6
                 </td>
             </tr>
             {% endfor %}
