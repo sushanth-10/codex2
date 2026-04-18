@@ -1,6 +1,7 @@
 from datetime import date, datetime
 import json
 import os
+import re
 import sqlite3
 import google.generativeai as genai
 from flask import Flask, redirect, render_template, request, session, url_for
@@ -407,9 +408,31 @@ def seed_demo_data(conn):
             """,
             (
                 "assistant",
-                "Hello! I can help with inventory, orders, marketing, finance, and customer insights. Ask me anything about your business.",
+                assistant_reset_welcome(),
                 datetime.now().isoformat(timespec="seconds"),
             ),
+        )
+    discount_count = conn.execute("SELECT COUNT(*) FROM shop_discounts").fetchone()[0]
+    if discount_count == 0:
+        demo_loc = normalize_location("Demo Metro Area")
+        now = datetime.now().isoformat(timespec="seconds")
+        conn.executemany(
+            """
+            INSERT INTO shop_discounts (product_name, discount_percent, shop_location, shop_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                ("Organic vegetables box", 15.0, demo_loc, "GreenBasket Market", now),
+                ("LED desk lamp", 12.5, demo_loc, "BrightHome", now),
+                ("Running shoes", 20.0, demo_loc, "Stride Sports", now),
+                ("Noise cancelling earbuds", 18.0, demo_loc, "TechNest", now),
+                ("Office chair ergonomic", 22.0, demo_loc, "ComfortSeat Co.", now),
+                ("Stainless steel bottle", 8.0, demo_loc, "EcoWare", now),
+                ("Yoga mat premium", 14.0, demo_loc, "ZenFit Studio", now),
+                ("Breakfast cereal bundle", 10.0, demo_loc, "MorningGoods", now),
+                ("Portable charger 20k mAh", 16.0, demo_loc, "PowerUp", now),
+                ("Winter jacket", 25.0, demo_loc, "Urban Outerwear", now),
+            ],
         )
     conn.commit()
 
@@ -560,6 +583,237 @@ def get_chart_series(conn, profile):
     return [month_label(current_month_key)], [monthly_rev], [monthly_exp]
 
 
+def normalize_assistant_question(text):
+    """Normalize user text for matching canned assistant replies (offline-friendly, punctuation-insensitive)."""
+    if text is None:
+        return ""
+    s = str(text).strip().lower()
+    # Curly quotes / apostrophes → ascii, then drop apostrophes so "don't" and "dont" match.
+    for ch in ("\u2019", "\u2018", "\u201c", "\u201d", "`"):
+        s = s.replace(ch, "'")
+    s = s.replace("'", "")
+    # Letters and digits only; collapses punctuation around words.
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+# Thirty built-in Q&A pairs (exact match after normalization). Extend keys with aliases where helpful.
+CANNED_ASSISTANT_RESPONSES = {
+    normalize_assistant_question("What is BizAssist AI?"): (
+        "BizAssist AI is a simple business companion app in your browser: it helps you track inventory, orders, "
+        "customers, expenses, marketing campaigns, and discounts. Personal accounts can browse local offers that "
+        "match the location on your profile."
+    ),
+    normalize_assistant_question("How do I track inventory?"): (
+        "Open the Inventory tab from the sidebar. There you can see stock levels, reorder levels, and prices. "
+        "Low-stock items are counted in dashboard metrics."
+    ),
+    normalize_assistant_question("How do I add a new product?"): (
+        "Go to Inventory and use the form to add a product with name, SKU, category, stock, reorder level, price, "
+        "and restock date. Saving updates your catalog immediately."
+    ),
+    normalize_assistant_question("What is net profit?"): (
+        "Net profit here is revenue minus expenses (including marketing spend from your business profile when "
+        "no detailed records exceed the baseline). Check the Dashboard and Finance sections for the current view."
+    ),
+    normalize_assistant_question("How do I view my orders?"): (
+        "Click Orders in the sidebar. You will see order code, customer, totals, status, and priority. "
+        "Statuses like Pending and Processing count as active orders on the dashboard."
+    ),
+    normalize_assistant_question("How do I add a customer?"): (
+        "Open the Customers page and fill in name, email, phone, and segment (for example VIP, New, or Regular). "
+        "Segments are used for marketing campaigns."
+    ),
+    normalize_assistant_question("What are low stock alerts?"): (
+        "Low stock alerts count products where current stock is at or below the reorder level you set in Inventory. "
+        "The dashboard shows how many items need attention."
+    ),
+    normalize_assistant_question("How do I update my business profile?"): (
+        "Go to Business Profile (or My account for personal users). Update owner name, contact details, "
+        "business type, revenue, expenses, targets, and location—location is used to match shop discounts with "
+        "personal shoppers in the same area."
+    ),
+    normalize_assistant_question("How do I create a marketing campaign?"): (
+        "Open Marketing while signed in as a business user. Under Add Campaign, enter title, segment, targets, "
+        "expected ROI, priority, and description, then save. You can launch campaigns from the same page."
+    ),
+    normalize_assistant_question("How do I publish a discount for customers?"): (
+        "On Marketing, use Add product discount. Enter product name and discount percentage. "
+        "Discounts are stored by your normalized business location so personal accounts with the same location "
+        "text see them on Local offers."
+    ),
+    normalize_assistant_question("Where can I see local offers as a shopper?"): (
+        "Create or sign in to a personal account, set your location under My account, then open Local offers "
+        "(Marketing). Offers come from the shared database and update when businesses add or remove discounts "
+        "for that location."
+    ),
+    normalize_assistant_question("How do I record an expense?"): (
+        "Use the Finance section: add category, description, amount, and date. Expenses feed into profit "
+        "calculations alongside order revenue."
+    ),
+    normalize_assistant_question("What is ROI?"): (
+        "ROI (return on investment) in campaigns is the expected percentage return you enter when creating "
+        "a campaign. It is a planning field to compare campaign ideas."
+    ),
+    normalize_assistant_question("How do I delete a discount?"): (
+        "On Marketing as a business user, find Your published discounts and click Delete next to the offer. "
+        "Personal Local offers refresh automatically because they read the same discount list."
+    ),
+    normalize_assistant_question("What segments can I target?"): (
+        "Campaigns use customer segments such as VIP, New, At Risk, or Regular—match the segment labels you use "
+        "on customer records so targeting stays consistent."
+    ),
+    normalize_assistant_question("How does the dashboard work?"): (
+        "The Dashboard summarizes revenue, expenses, profit, active orders, low-stock count, and customer counts. "
+        "Figures combine order/expense tables with values from your business profile when needed."
+    ),
+    normalize_assistant_question("What financial reports are available?"): (
+        "Finance shows expense entries and monthly snapshots; the Dashboard charts recent monthly revenue and "
+        "expenses when monthly_financials data exists."
+    ),
+    normalize_assistant_question("How do I launch a campaign?"): (
+        "On Marketing, find your campaign card and click Launch Campaign. The status updates to Launched."
+    ),
+    normalize_assistant_question("What is monthly revenue?"): (
+        "Monthly revenue is the revenue attributed to the current reporting month—computed from orders for that "
+        "month and compared with the revenue figure saved in your business profile and monthly_financials."
+    ),
+    normalize_assistant_question("Is my data secure?"): (
+        "This project stores data in a local SQLite file. Use a strong FLASK_SECRET_KEY in production, "
+        "protect file permissions, and host behind HTTPS—standard practices for small Flask deployments."
+    ),
+    normalize_assistant_question("Can I use this on mobile?"): (
+        "The interface is a responsive web app. Open it in your phone browser; layout adapts on smaller screens."
+    ),
+    normalize_assistant_question("What currency is displayed?"): (
+        "Amounts are formatted as INR (Indian Rupees) using the app's number formatting."
+    ),
+    normalize_assistant_question("How do I clear the AI chat history?"): (
+        "Messages are stored in the assistant_messages table; a reset endpoint can clear them if enabled. "
+        "Otherwise ask short new questions—the page shows the latest conversation window."
+    ),
+    normalize_assistant_question("What is Gemini?"): (
+        "Gemini is Google's generative AI. If GEMINI_API_KEY or GOOGLE_API_KEY is set and google-generativeai "
+        "is installed, this assistant answers via Gemini; otherwise you see setup instructions."
+    ),
+    normalize_assistant_question("How do I improve profit?"): (
+        "Raise revenue (orders), control expenses and marketing spend, manage inventory to avoid stockouts, "
+        "and focus campaigns on high-ROI segments—then review Dashboard and Finance regularly."
+    ),
+    normalize_assistant_question("What is a VIP customer?"): (
+        "VIP is a segment label you can assign on the Customers page. Campaigns can target VIP alongside other segments."
+    ),
+    normalize_assistant_question("How do discounts sync to personal accounts?"): (
+        "Both account types use the same SQLite database. Businesses insert rows into shop_discounts with a "
+        "normalized location; personal Local offers query that table for your normalized profile location, "
+        "so new or deleted discounts appear on refresh without a separate sync step."
+    ),
+    normalize_assistant_question("What does normalized location mean?"): (
+        "Your location text is lowercased and extra spaces are removed before matching. "
+        "Enter the same area text on business and personal profiles to see the same offers."
+    ),
+    normalize_assistant_question("How do I see the top offers in my area?"): (
+        "Open Local offers on a personal account. The Top 10 section ranks the highest discounts for your "
+        "location; demo picks fill in if there are fewer than ten real offers."
+    ),
+    normalize_assistant_question("Why don't I see any offers?"): (
+        "Set a location under My account. It must match the normalized location businesses used when posting "
+        "discounts. If nothing matches, you will still see featured demo suggestions in Top 10 when enabled."
+    ),
+}
+
+# Display strings for the assistant page (same 30 as CANNED_ASSISTANT_RESPONSES keys, pre-normalization).
+ASSISTANT_SUGGESTED_QUESTIONS = [
+    "What is BizAssist AI?",
+    "How do I track inventory?",
+    "How do I add a new product?",
+    "What is net profit?",
+    "How do I view my orders?",
+    "How do I add a customer?",
+    "What are low stock alerts?",
+    "How do I update my business profile?",
+    "How do I create a marketing campaign?",
+    "How do I publish a discount for customers?",
+    "Where can I see local offers as a shopper?",
+    "How do I record an expense?",
+    "What is ROI?",
+    "How do I delete a discount?",
+    "What segments can I target?",
+    "How does the dashboard work?",
+    "What financial reports are available?",
+    "How do I launch a campaign?",
+    "What is monthly revenue?",
+    "Is my data secure?",
+    "Can I use this on mobile?",
+    "What currency is displayed?",
+    "How do I clear the AI chat history?",
+    "What is Gemini?",
+    "How do I improve profit?",
+    "What is a VIP customer?",
+    "How do discounts sync to personal accounts?",
+    "What does normalized location mean?",
+    "How do I see the top offers in my area?",
+    "Why don't I see any offers?",
+]
+
+
+# Fallback “area” offers when fewer than ten real discounts exist (same DB; labeled in the UI).
+BUILTIN_AREA_OFFER_PAD = [
+    ("Fresh produce bundle", 18.0, "Neighborhood Fresh"),
+    ("Household essentials kit", 12.0, "City Mart"),
+    ("Weekend bakery box", 22.0, "Rise & Shine Bakery"),
+    ("Mobile accessories pack", 15.0, "Tech Corner"),
+    ("Coffee & snacks combo", 20.0, "Daily Grind Café"),
+    ("Sportswear clearance", 25.0, "ActiveWear Outlet"),
+    ("Books & stationery set", 10.0, "Pages & Pens"),
+    ("Skincare sampler", 17.0, "Glow Beauty"),
+    ("Kids apparel bundle", 14.0, "Little Steps"),
+    ("DIY hardware starter", 11.0, "FixIt Hardware"),
+]
+
+
+def row_to_offer_dict(row, builtin=False):
+    d = {k: row[k] for k in row.keys()}
+    d["builtin"] = builtin
+    return d
+
+
+def merge_top_ten_area_offers(db_rows, user_norm):
+    """Return up to 10 offer dicts: real DB rows first (by discount), then padded builtins."""
+    rows = list(db_rows)
+    rows.sort(key=lambda r: (-float(r["discount_percent"]), -int(r["id"])))
+    out = []
+    seen_product = set()
+    for r in rows:
+        pn = (r["product_name"] or "").strip().lower()
+        if pn in seen_product:
+            continue
+        seen_product.add(pn)
+        out.append(row_to_offer_dict(r, builtin=False))
+        if len(out) >= 10:
+            return out
+    for prod, pct, shop in BUILTIN_AREA_OFFER_PAD:
+        if len(out) >= 10:
+            break
+        pn = prod.strip().lower()
+        if pn in seen_product:
+            continue
+        seen_product.add(pn)
+        out.append(
+            {
+                "id": None,
+                "product_name": prod,
+                "discount_percent": pct,
+                "shop_location": user_norm,
+                "shop_name": shop,
+                "created_at": "",
+                "builtin": True,
+            }
+        )
+    return out
+
+
 def build_ai_context(conn):
     metrics = query_metrics(conn)
     profile = get_business_profile(conn)
@@ -630,12 +884,22 @@ def call_gemini(conn, user_message):
 
 
 def build_assistant_response(conn, user_message):
+    nq = normalize_assistant_question(user_message)
+    if nq and nq in CANNED_ASSISTANT_RESPONSES:
+        return CANNED_ASSISTANT_RESPONSES[nq]
     reply = call_gemini(conn, user_message)
     if reply is not None:
         return reply
     return (
-        "Set your Google Gemini API key: put it in app.py as GEMINI_API_KEY = \"your-key\" "
-        "or set the GOOGLE_API_KEY environment variable, install google-generativeai, then restart the app."
+        "No AI API key is configured, so only the built-in questions (buttons above) get full answers offline. "
+        "Tap a suggested question and press Send, or add GEMINI_API_KEY / GOOGLE_API_KEY for open-ended chat."
+    )
+
+
+def assistant_reset_welcome():
+    return (
+        "Hello! I can answer the 30 built-in questions without any API key. "
+        "For other topics, add a Gemini API key in settings or environment."
     )
 
 
@@ -1241,6 +1505,7 @@ def marketing():
     user_norm = normalize_location(profile["location"] or "")
 
     discounts_for_template = []
+    top_10_offers = []
     if acc == "personal":
         if user_norm:
             if search_q:
@@ -1250,15 +1515,38 @@ def marketing():
                     SELECT * FROM shop_discounts
                     WHERE shop_location = ?
                       AND (lower(product_name) LIKE lower(?) OR lower(IFNULL(shop_name,'')) LIKE lower(?))
-                    ORDER BY id DESC
+                    ORDER BY discount_percent DESC, id DESC
                     """,
-                    (user_norm, f"%{search_q}%", f"%{search_q}%"),
+                    (user_norm, like, like),
                 ).fetchall()
             else:
                 discounts_for_template = conn.execute(
-                    "SELECT * FROM shop_discounts WHERE shop_location = ? ORDER BY id DESC",
+                    """
+                    SELECT * FROM shop_discounts
+                    WHERE shop_location = ?
+                    ORDER BY discount_percent DESC, id DESC
+                    """,
                     (user_norm,),
                 ).fetchall()
+            rows_for_top = conn.execute(
+                """
+                SELECT * FROM shop_discounts
+                WHERE shop_location = ?
+                ORDER BY discount_percent DESC, id DESC
+                """,
+                (user_norm,),
+            ).fetchall()
+            top_10_offers = merge_top_ten_area_offers(rows_for_top, user_norm)
+
+    recent_all_discounts = []
+    if acc == "personal":
+        recent_all_discounts = conn.execute(
+            """
+            SELECT * FROM shop_discounts
+            ORDER BY id DESC
+            LIMIT 25
+            """
+        ).fetchall()
 
     campaigns = []
     segment_rows = []
@@ -1275,12 +1563,15 @@ def marketing():
         metrics = query_metrics(conn)
         if user_norm:
             discounts_for_template = conn.execute(
-                "SELECT * FROM shop_discounts WHERE shop_location = ? ORDER BY id DESC",
+                """
+                SELECT * FROM shop_discounts WHERE shop_location = ?
+                ORDER BY discount_percent DESC, id DESC
+                """,
                 (user_norm,),
             ).fetchall()
         else:
             discounts_for_template = conn.execute(
-                "SELECT * FROM shop_discounts ORDER BY id DESC"
+                "SELECT * FROM shop_discounts ORDER BY discount_percent DESC, id DESC"
             ).fetchall()
 
     conn.close()
@@ -1293,6 +1584,8 @@ def marketing():
         categories=category_rows,
         metrics=metrics,
         discounts=discounts_for_template,
+        top_10_offers=top_10_offers,
+        recent_all_discounts=recent_all_discounts,
         user_location_display=(profile["location"] or ""),
         search_q=search_q,
     )
@@ -1476,20 +1769,19 @@ def delete_customer(customer_id):
     return redirect(url_for("customers"))
 
 
-'''@app.post("/assistant/reset")
+@app.post("/assistant/reset")
 def assistant_reset():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     conn.execute("DELETE FROM assistant_messages")
     now = datetime.now().isoformat(timespec="seconds")
     conn.execute(
         "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
-        (
-            "assistant",
-            "Chat cleared. Ask me anything about your business, inventory, orders, or finances.",
-            now,
-        ),
+        ("assistant", assistant_reset_welcome(), now),
     )
     conn.commit()
     conn.close()
@@ -1499,7 +1791,10 @@ def assistant_reset():
 @app.route("/assistant", methods=["GET", "POST"])
 def assistant():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     if request.method == "POST":
         user_message = request.form["message"].strip()
@@ -1527,48 +1822,7 @@ def assistant():
         active_page="assistant",
         messages=messages,
         metrics=metrics,
-    )'''
-
-@app.route("/assistant", methods=["GET", "POST"])
-def assistant():
-    if not business_profile_required():
-        return redirect(url_for("root"))
-    redir = require_business_user()
-    if redir:
-        return redir
-    conn = get_db_connection()
-    if request.method == "POST":
-        user_message = request.form["message"].strip()
-        if user_message:
-            now = datetime.now().isoformat(timespec="seconds")
-            conn.execute(
-                "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
-                ("user", user_message, now),
-            )
-            metrics = query_metrics(conn)
-            response = (
-                f"Current snapshot: Revenue {format_inr(metrics['revenue'])}, "
-                f"Net Profit {format_inr(metrics['net_profit'])}, "
-                f"Low Stock Alerts {metrics['low_stock']}, Active Orders {metrics['active_orders']}. "
-                "Add or update records in Inventory, Orders, Customers, and Finance tabs for smarter recommendations."
-            )
-            conn.execute(
-                "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
-                ("assistant", response, now),
-            )
-            conn.commit()
-        return redirect(url_for("assistant"))
-
-    messages = conn.execute(
-        "SELECT * FROM assistant_messages ORDER BY id ASC LIMIT 30"
-    ).fetchall()
-    metrics = query_metrics(conn)
-    conn.close()
-    return render_template(
-        "assistant.html",
-        active_page="assistant",
-        messages=messages,
-        metrics=metrics,
+        suggested_questions=ASSISTANT_SUGGESTED_QUESTIONS,
     )
 
 

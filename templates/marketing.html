@@ -3,7 +3,7 @@
 {% block content %}
 {% if is_personal %}
 <h1 class="page-title">Local discounts for you</h1>
-<p class="page-subtitle">Offers from shops that use the <b>same location text</b> as you ({{ user_location_display or "not set" }}). Search by product or shop name.</p>
+<p class="page-subtitle">Offers use the shared <b>shop_discounts</b> database: when a business account adds or removes a discount for a location, personal accounts with the same normalized area see updates on refresh. Your location: <b>{{ user_location_display or "not set" }}</b>.</p>
 
 <div class="panel">
     <form method="get" class="form-grid" style="grid-template-columns: 2fr 1fr auto; align-items: end;">
@@ -16,17 +16,55 @@
     </form>
 </div>
 
+{% if user_location_display and not search_q %}
 <div class="panel">
-    <h3 class="section-title">Offers at your location</h3>
+    <h3 class="section-title">Top 10 offers in your area</h3>
+    <p class="muted" style="margin-bottom:10px;">Ranked by discount strength for your normalized location; featured picks fill the list when there are fewer than ten live offers.</p>
+    {% if top_10_offers|length == 0 %}
+    <p class="muted">No rows to show.</p>
+    {% else %}
+    {% for d in top_10_offers %}
+    <div style="border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:10px;">
+        <b>{{ d["product_name"] }}</b>
+        {% if d.get("builtin") %}<span class="muted"> — featured pick</span>{% endif %}
+        <p class="muted" style="margin-top:6px;">{{ (d["discount_percent"]|float)|round(1) }}% off{% if d["shop_name"] %} at <b>{{ d["shop_name"] }}</b>{% endif %}</p>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+    <h3 class="section-title">{% if search_q %}Search results{% else %}All offers at your location{% endif %}</h3>
     {% if not user_location_display %}
     <p class="muted">Add your location under <a href="/business-profile">My account</a> to see matching offers.</p>
     {% elif discounts|length == 0 %}
-    <p class="muted">No discounts yet for this location. When a nearby shop adds a product offer with the same location text, it will show here.</p>
+    {% if search_q %}
+    <p class="muted">No discounts match this search. Clear the search or try another product or shop name.</p>
+    {% else %}
+    <p class="muted">No live rows in <b>shop_discounts</b> for this location yet—when a business publishes here, they appear instantly. Featured picks may still show in Top 10.</p>
+    {% endif %}
     {% else %}
     {% for d in discounts %}
     <div style="border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:10px;">
         <b>{{ d["product_name"] }}</b>
         <p class="muted" style="margin-top:6px;">{{ (d["discount_percent"]|float)|round(1) }}% off{% if d["shop_name"] %} at <b>{{ d["shop_name"] }}</b>{% endif %}</p>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+
+<div class="panel">
+    <h3 class="section-title">Recent offers from all businesses (same database)</h3>
+    <p class="muted">Direct read from <b>shop_discounts</b>—refresh this page after a business saves a discount. The <b>Area tag</b> is the normalized location; match it in My account to include that row in the sections above.</p>
+    {% if recent_all_discounts|length == 0 %}
+    <p class="muted">No discounts in the database yet.</p>
+    {% else %}
+    {% for d in recent_all_discounts %}
+    <div style="border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:10px;">
+        <b>{{ d["product_name"] }}</b>
+        <p class="muted" style="margin-top:6px;">{{ (d["discount_percent"]|float)|round(1) }}% off{% if d["shop_name"] %} at <b>{{ d["shop_name"] }}</b>{% endif %}</p>
+        <small class="muted">Area tag: {{ d["shop_location"] }}</small>
     </div>
     {% endfor %}
     {% endif %}

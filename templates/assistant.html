@@ -3,8 +3,16 @@
 {% block content %}
  
 <h1 class="page-title">Chat Assistant</h1>
-<p class="page-subtitle">Ask business questions and receive data-aware recommendations.</p>
+<p class="page-subtitle">Works fully offline for the 30 built-in questions below—no API key required. Other questions need a Gemini API key.</p>
 
+<div class="panel">
+    <h3 class="section-title">Built-in questions (tap to fill, then Send)</h3>
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        {% for q in suggested_questions %}
+        <button type="button" class="btn btn-secondary" style="font-size:12px;" data-suggest="{{ q|e }}">{{ q }}</button>
+        {% endfor %}
+    </div>
+</div>
 
 <div class="panel">
     <div class="chat-feed">
@@ -16,15 +24,24 @@
         </div>
         {% endfor %}
     </div>
-    <form method="post" style="display:flex; gap:8px;">
-        <input class="input" name="message" placeholder="Ask about inventory, orders, finance, growth strategy..." required>
+    <form method="post" style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input class="input" name="message" placeholder="Ask about inventory, orders, finance, growth strategy..." required style="flex:1; min-width:200px;">
         <button class="btn btn-primary" type="submit">Send</button>
+    </form>
+    <form method="post" action="{{ url_for('assistant_reset') }}" style="margin-top:10px;" onsubmit="return confirm('Clear all chat messages?');">
+        <button class="btn btn-secondary" type="submit">Reset chat</button>
     </form>
     <button onclick="startVoice()">🎤</button>
 </div>
  
 
 <script>
+document.querySelectorAll("[data-suggest]").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+        var input = document.querySelector('input[name="message"]');
+        if (input) input.value = btn.getAttribute("data-suggest");
+    });
+});
 function startVoice() {
     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.start();
