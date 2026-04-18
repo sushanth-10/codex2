@@ -1,9 +1,14 @@
 from datetime import date, datetime
+import json
+import os
 import sqlite3
+import google.generativeai as genai
 from flask import Flask, redirect, render_template, request, url_for
 
 app = Flask(__name__)
 
+app.config["GEMINI_API_KEY"] = ""
+app.config["GEMINI_MODEL"] = "gemini-pro"
 
 def get_db_connection():
     conn = sqlite3.connect("database.db")
@@ -112,8 +117,23 @@ def init_db():
             marketing_spend REAL NOT NULL DEFAULT 0,
             growth_target REAL NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS monthly_financials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            year_month TEXT NOT NULL UNIQUE,
+            revenue REAL,
+            expenses REAL,
+            source TEXT NOT NULL DEFAULT 'manual'
+        );
         """
     )
+    # Lightweight migration for existing databases.
+    try:
+        conn.execute(
+            "ALTER TABLE inventory_products ADD COLUMN last_restock_amount INTEGER NOT NULL DEFAULT 0"
+        )
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     seed_demo_data(conn)
     conn.close()
@@ -254,6 +274,191 @@ def query_metrics(conn):
     }
 
 
+def month_key_for(dt):
+    return dt.strftime("%Y-%m")
+
+
+def month_label(month_key):
+    return datetime.strptime(month_key, "%Y-%m").strftime("%b %Y")
+
+
+def previous_month_key(reference_date=None):
+    current = reference_date or date.today()
+    year = current.year
+    month = current.month - 1
+    if month == 0:
+        month = 12
+        year -= 1
+    return f"{year}-{month:02d}"
+
+
+def save_selected_month_financial(conn, form):
+    selected_month = (form.get("financial_month") or "").strip() or previous_month_key()
+    month_none = form.get("financial_month_none") == "on"
+    if month_none:
+        upsert_monthly_financial(conn, selected_month, None, None, source="manual")
+        return
+
+    selected_revenue_raw = form.get("selected_month_revenue", "").strip()
+    selected_expenses_raw = form.get("selected_month_expenses", "").strip()
+    if selected_revenue_raw or selected_expenses_raw:
+        upsert_monthly_financial(
+            conn,
+            selected_month,
+            float(selected_revenue_raw or 0),
+            float(selected_expenses_raw or 0),
+            source="manual",
+        )
+
+
+def pick_text(form, key, fallback=""):
+    raw = (form.get(key) or "").strip()
+    return raw if raw else fallback
+
+
+def pick_float(form, key, fallback=0.0):
+    raw = (form.get(key) or "").strip()
+    if raw == "":
+        return float(fallback or 0)
+    try:
+        return float(raw)
+    except ValueError:
+        return float(fallback or 0)
+
+
+def upsert_monthly_financial(conn, year_month, revenue, expenses, source="manual"):
+    conn.execute(
+        """
+        INSERT INTO monthly_financials (year_month, revenue, expenses, source)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(year_month) DO UPDATE SET
+            revenue = excluded.revenue,
+            expenses = excluded.expenses,
+            source = excluded.source
+        """,
+        (year_month, revenue, expenses, source),
+    )
+
+
+def update_current_month_snapshot(conn, revenue, expenses):
+    if revenue is None and expenses is None:
+        return
+    upsert_monthly_financial(
+        conn,
+        month_key_for(date.today()),
+        revenue,
+        expenses,
+        source="profile",
+    )
+
+
+def get_chart_series(conn, profile):
+    rows = conn.execute(
+        "SELECT year_month, revenue, expenses FROM monthly_financials ORDER BY year_month ASC"
+    ).fetchall()
+    if rows:
+        rows = rows[-6:]
+        labels = [month_label(row["year_month"]) for row in rows]
+        revenue = [float(row["revenue"] or 0) for row in rows]
+        expenses = [float(row["expenses"] or 0) for row in rows]
+        return labels, revenue, expenses
+
+    # Fallback for older DBs with no monthly snapshots yet.
+    current_month_key = month_key_for(date.today())
+    monthly_rev = conn.execute(
+        "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE strftime('%Y-%m', order_date) = ?",
+        (current_month_key,),
+    ).fetchone()[0]
+    monthly_exp = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE strftime('%Y-%m', expense_date) = ?",
+        (current_month_key,),
+    ).fetchone()[0]
+    if monthly_rev == 0 and profile:
+        monthly_rev = profile["monthly_revenue"]
+    if monthly_exp == 0 and profile:
+        monthly_exp = profile["monthly_expenses"] + profile["marketing_spend"]
+    return [month_label(current_month_key)], [monthly_rev], [monthly_exp]
+
+
+def build_ai_context(conn):
+    metrics = query_metrics(conn)
+    profile = get_business_profile(conn)
+    latest_financials = conn.execute(
+        """
+        SELECT year_month, revenue, expenses
+        FROM monthly_financials
+        ORDER BY year_month DESC
+        LIMIT 3
+        """
+    ).fetchall()
+    financial_lines = "; ".join(
+        [f"{row['year_month']}: revenue {row['revenue'] or 0}, expenses {row['expenses'] or 0}" for row in latest_financials]
+    )
+    return {
+        "profile": dict(profile) if profile else {},
+        "metrics": metrics,
+        "recent_financials": financial_lines,
+    }
+
+
+def _gemini_api_key():
+    return (
+        (app.config.get("GEMINI_API_KEY") or "").strip()
+        or (os.environ.get("GOOGLE_API_KEY") or "").strip()
+    )
+
+
+def call_gemini(conn, user_message):
+    """All assistant replies go through Google Gemini when an API key is set."""
+    api_key = _gemini_api_key()
+    if not api_key:
+        return None
+
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        return (
+            "The Gemini package is not installed. Run: pip install google-generativeai"
+        )
+
+    try:
+        genai.configure(api_key=api_key)
+        model_name = (app.config.get("GEMINI_MODEL") or "gemini-1.5-flash").strip()
+        context = build_ai_context(conn)
+        prompt = (
+            "You are a friendly business assistant for BizAssist AI. "
+            "Answer in plain, simple language for non-technical users. "
+            "Use the business context below when the question is about this business; "
+            "otherwise give short, practical general business advice.\n\n"
+            f"Business context (JSON):\n{json.dumps(context, default=str)}\n\n"
+            f"User question:\n{user_message}"
+        )
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(prompt)
+        try:
+            text = (response.text or "").strip()
+        except ValueError:
+            text = ""
+        if text:
+            return text
+        return (
+            "Gemini returned no text (it may have been blocked for safety). "
+            "Try rephrasing your question."
+        )
+    except Exception as exc:
+        return f"Gemini error: {exc!s}. Check GEMINI_MODEL and your API key."
+
+
+def build_assistant_response(conn, user_message):
+    reply = call_gemini(conn, user_message)
+    if reply is not None:
+        return reply
+    return (
+        "Set your Google Gemini API key: put it in app.py as GEMINI_API_KEY = \"your-key\" "
+        "or set the GOOGLE_API_KEY environment variable, install google-generativeai, then restart the app."
+    )
+
+
 def get_business_profile(conn):
     return conn.execute("SELECT * FROM business_profile WHERE id = 1").fetchone()
 
@@ -294,6 +499,8 @@ def root():
 def login():
     if request.method == "POST":
         conn = get_db_connection()
+        monthly_revenue = float(request.form["monthly_revenue"] or 0)
+        monthly_expenses = float(request.form["monthly_expenses"] or 0)
         conn.execute(
             """
             INSERT INTO business_profile
@@ -316,20 +523,99 @@ def login():
                 request.form["email"],
                 request.form["phone"],
                 request.form["business_type"],
-                float(request.form["monthly_revenue"] or 0),
-                float(request.form["monthly_expenses"] or 0),
+                monthly_revenue,
+                monthly_expenses,
                 float(request.form["marketing_spend"] or 0),
                 float(request.form["growth_target"] or 0),
             ),
         )
+        update_current_month_snapshot(conn, monthly_revenue, monthly_expenses)
+        save_selected_month_financial(conn, request.form)
         conn.commit()
         conn.close()
         return redirect(url_for("dashboard"))
 
     conn = get_db_connection()
-    profile = get_business_profile(conn)
+    selected_month = previous_month_key()
+    selected_row = conn.execute(
+        "SELECT revenue, expenses FROM monthly_financials WHERE year_month = ?",
+        (selected_month,),
+    ).fetchone()
     conn.close()
-    return render_template("login.html", profile=profile)
+    return render_template(
+        "login.html",
+        profile=None,
+        active_page="business_profile",
+        form_mode="login",
+        selected_financial_month=selected_month,
+        selected_month_revenue=(selected_row["revenue"] if selected_row else ""),
+        selected_month_expenses=(selected_row["expenses"] if selected_row else ""),
+    )
+
+
+@app.route("/business-profile", methods=["GET", "POST"])
+def business_profile():
+    if not business_profile_required():
+        return redirect(url_for("login"))
+    conn = get_db_connection()
+    if request.method == "POST":
+        existing = get_business_profile(conn)
+        existing_data = dict(existing) if existing else {}
+        monthly_revenue = pick_float(request.form, "monthly_revenue", existing_data.get("monthly_revenue", 0))
+        monthly_expenses = pick_float(request.form, "monthly_expenses", existing_data.get("monthly_expenses", 0))
+        conn.execute(
+            """
+            INSERT INTO business_profile
+            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                owner_name = excluded.owner_name,
+                business_name = excluded.business_name,
+                email = excluded.email,
+                phone = excluded.phone,
+                business_type = excluded.business_type,
+                monthly_revenue = excluded.monthly_revenue,
+                monthly_expenses = excluded.monthly_expenses,
+                marketing_spend = excluded.marketing_spend,
+                growth_target = excluded.growth_target
+            """,
+            (
+                pick_text(request.form, "owner_name", existing_data.get("owner_name", "Owner Account")),
+                pick_text(request.form, "business_name", existing_data.get("business_name", "Demo Business")),
+                pick_text(request.form, "email", existing_data.get("email", "owner@example.com")),
+                pick_text(request.form, "phone", existing_data.get("phone", "0000000000")),
+                pick_text(request.form, "business_type", existing_data.get("business_type", "Retail")),
+                monthly_revenue,
+                monthly_expenses,
+                pick_float(request.form, "marketing_spend", existing_data.get("marketing_spend", 0)),
+                pick_float(request.form, "growth_target", existing_data.get("growth_target", 0)),
+            ),
+        )
+        update_current_month_snapshot(conn, monthly_revenue, monthly_expenses)
+        save_selected_month_financial(conn, request.form)
+        conn.commit()
+        conn.close()
+        action = request.form.get("action", "stay")
+        if action == "dashboard":
+            return redirect(url_for("dashboard"))
+        return redirect(url_for("business_profile"))
+
+    profile = get_business_profile(conn)
+    selected_month = previous_month_key()
+    selected_row = conn.execute(
+        "SELECT revenue, expenses FROM monthly_financials WHERE year_month = ?",
+        (selected_month,),
+    ).fetchone()
+    conn.close()
+    return render_template(
+        "login.html",
+        profile=profile,
+        active_page="business_profile",
+        form_mode="profile",
+        selected_financial_month=selected_month,
+        selected_month_revenue=(selected_row["revenue"] if selected_row else ""),
+        selected_month_expenses=(selected_row["expenses"] if selected_row else ""),
+    )
 
 
 @app.route("/dashboard")
@@ -339,26 +625,7 @@ def dashboard():
     conn = get_db_connection()
     profile = get_business_profile(conn)
     metrics = query_metrics(conn)
-    month_labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]
-    revenue_series = [0] * len(month_labels)
-    expense_series = [0] * len(month_labels)
-    current_month = date.today().month
-    for i in range(6):
-        month = ((current_month - 5 + i - 1) % 12) + 1
-        monthly_revenue = conn.execute(
-            "SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE CAST(strftime('%m', order_date) AS INTEGER)=?",
-            (month,),
-        ).fetchone()[0]
-        monthly_expense = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE CAST(strftime('%m', expense_date) AS INTEGER)=?",
-            (month,),
-        ).fetchone()[0]
-        revenue_series[i] = monthly_revenue
-        expense_series[i] = monthly_expense
-    if profile and all(value == 0 for value in revenue_series):
-        revenue_series[-1] = profile["monthly_revenue"]
-    if profile and all(value == 0 for value in expense_series):
-        expense_series[-1] = profile["monthly_expenses"] + profile["marketing_spend"]
+    month_labels, revenue_series, expense_series = get_chart_series(conn, profile)
     conn.close()
     return render_template(
         "dashboard.html",
@@ -383,7 +650,7 @@ def inventory():
             """,
             (
                 request.form["name"],
-                request.form["sku"],
+                request.form["sku"] or "NONE",
                 request.form["category"],
                 int(request.form["stock"] or 0),
                 int(request.form["reorder_level"] or 0),
@@ -427,16 +694,29 @@ def inventory():
 def restock_product(product_id):
     if not business_profile_required():
         return redirect(url_for("login"))
+    restock_qty = max(1, int(request.form.get("restock_amount", 0) or 0))
     conn = get_db_connection()
     conn.execute(
         """
         UPDATE inventory_products
-        SET stock = stock + reorder_level,
+        SET stock = stock + ?,
+            last_restock_amount = ?,
             last_restocked = ?
         WHERE id = ?
         """,
-        (date.today().isoformat(), product_id),
+        (restock_qty, restock_qty, date.today().isoformat(), product_id),
     )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("inventory"))
+
+
+@app.post("/inventory/delete/<int:product_id>")
+def delete_product(product_id):
+    if not business_profile_required():
+        return redirect(url_for("login"))
+    conn = get_db_connection()
+    conn.execute("DELETE FROM inventory_products WHERE id = ?", (product_id,))
     conn.commit()
     conn.close()
     return redirect(url_for("inventory"))
@@ -501,6 +781,17 @@ def update_order_status(order_id):
     new_status = request.form.get("status", "Processing")
     conn = get_db_connection()
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("orders"))
+
+
+@app.post("/orders/delete/<int:order_id>")
+def delete_order(order_id):
+    if not business_profile_required():
+        return redirect(url_for("login"))
+    conn = get_db_connection()
+    conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
     conn.commit()
     conn.close()
     return redirect(url_for("orders"))
@@ -647,6 +938,37 @@ def customers():
     )
 
 
+@app.post("/customers/delete/<int:customer_id>")
+def delete_customer(customer_id):
+    if not business_profile_required():
+        return redirect(url_for("login"))
+    conn = get_db_connection()
+    conn.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("customers"))
+
+
+@app.post("/assistant/reset")
+def assistant_reset():
+    if not business_profile_required():
+        return redirect(url_for("login"))
+    conn = get_db_connection()
+    conn.execute("DELETE FROM assistant_messages")
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
+        (
+            "assistant",
+            "Chat cleared. Ask me anything about your business, inventory, orders, or finances.",
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("assistant"))
+
+
 @app.route("/assistant", methods=["GET", "POST"])
 def assistant():
     if not business_profile_required():
@@ -660,13 +982,7 @@ def assistant():
                 "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
                 ("user", user_message, now),
             )
-            metrics = query_metrics(conn)
-            response = (
-                f"Current snapshot: Revenue {format_inr(metrics['revenue'])}, "
-                f"Net Profit {format_inr(metrics['net_profit'])}, "
-                f"Low Stock Alerts {metrics['low_stock']}, Active Orders {metrics['active_orders']}. "
-                "Add or update records in Inventory, Orders, Customers, and Finance tabs for smarter recommendations."
-            )
+            response = build_assistant_response(conn, user_message)
             conn.execute(
                 "INSERT INTO assistant_messages (role, message, created_at) VALUES (?, ?, ?)",
                 ("assistant", response, now),
