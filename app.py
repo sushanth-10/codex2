@@ -3,9 +3,10 @@ import json
 import os
 import sqlite3
 import google.generativeai as genai
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, redirect, render_template, request, session, url_for
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-bizassist-secret-change-me")
 import json
 from openai import OpenAI
 from flask import jsonify
@@ -260,7 +261,18 @@ def init_db():
             monthly_revenue REAL NOT NULL DEFAULT 0,
             monthly_expenses REAL NOT NULL DEFAULT 0,
             marketing_spend REAL NOT NULL DEFAULT 0,
-            growth_target REAL NOT NULL DEFAULT 0
+            growth_target REAL NOT NULL DEFAULT 0,
+            account_type TEXT NOT NULL DEFAULT 'business',
+            location TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS shop_discounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_name TEXT NOT NULL,
+            discount_percent REAL NOT NULL,
+            shop_location TEXT NOT NULL,
+            shop_name TEXT,
+            created_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS monthly_financials (
@@ -276,6 +288,29 @@ def init_db():
     try:
         conn.execute(
             "ALTER TABLE inventory_products ADD COLUMN last_restock_amount INTEGER NOT NULL DEFAULT 0"
+        )
+    except sqlite3.OperationalError:
+        pass
+    for stmt in (
+        "ALTER TABLE business_profile ADD COLUMN account_type TEXT NOT NULL DEFAULT 'business'",
+        "ALTER TABLE business_profile ADD COLUMN location TEXT NOT NULL DEFAULT ''",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS shop_discounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_name TEXT NOT NULL,
+                discount_percent REAL NOT NULL,
+                shop_location TEXT NOT NULL,
+                shop_name TEXT,
+                created_at TEXT NOT NULL
+            );
+            """
         )
     except sqlite3.OperationalError:
         pass
@@ -608,11 +643,50 @@ def get_business_profile(conn):
     return conn.execute("SELECT * FROM business_profile WHERE id = 1").fetchone()
 
 
+def normalize_location(value):
+    if value is None:
+        return ""
+    return " ".join(str(value).strip().lower().split())
+
+
+def get_account_type(profile):
+    if not profile:
+        return None
+    try:
+        raw = profile["account_type"]
+    except (KeyError, IndexError):
+        raw = None
+    t = (raw or "business").strip().lower()
+    return t if t in ("business", "personal") else "business"
+
+
+def session_matches_profile(profile):
+    """True when the user completed account choice login for this stored profile."""
+    if not profile:
+        return False
+    auth = session.get("account_auth")
+    if auth not in ("business", "personal"):
+        return False
+    return auth == get_account_type(profile)
+
+
+def require_business_user():
+    """Return a Flask redirect if visitor has no matching session/profile or is a personal account."""
+    conn = get_db_connection()
+    profile = get_business_profile(conn)
+    conn.close()
+    if not profile or not session_matches_profile(profile):
+        return redirect(url_for("root"))
+    if get_account_type(profile) == "personal":
+        return redirect(url_for("marketing"))
+    return None
+
+
 def business_profile_required():
     conn = get_db_connection()
     profile = get_business_profile(conn)
     conn.close()
-    return profile is not None
+    return profile is not None and session_matches_profile(profile)
 
 
 @app.context_processor
@@ -624,33 +698,62 @@ def inject_business_profile():
         owner_name = profile["owner_name"]
         business_name = profile["business_name"]
         avatar = "".join([part[0].upper() for part in owner_name.split()[:2]]) or "DB"
+        is_personal_account = get_account_type(profile) == "personal"
     else:
         owner_name = "Owner Account"
         business_name = "Demo Business"
         avatar = "DB"
+        is_personal_account = False
     return {
         "owner_name": owner_name,
         "business_name": business_name,
         "avatar_text": avatar,
+        "is_personal_account": is_personal_account,
     }
 
 
 @app.route("/")
 def root():
-    return redirect(url_for("login"))
+    conn = get_db_connection()
+    profile = get_business_profile(conn)
+    conn.close()
+    if profile and session_matches_profile(profile):
+        if get_account_type(profile) == "personal":
+            return redirect(url_for("marketing"))
+        return redirect(url_for("dashboard"))
+    return render_template("account_choice.html")
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("root"))
+
+
+@app.route("/personal-signup", methods=["GET", "POST"])
+def personal_signup():
+    conn = get_db_connection()
+    existing = get_business_profile(conn)
+    if existing and session_matches_profile(existing):
+        conn.close()
+        if get_account_type(existing) == "personal":
+            return redirect(url_for("marketing"))
+        return redirect(url_for("dashboard"))
+    conn.close()
+
     if request.method == "POST":
+        loc = pick_text(request.form, "location", "")
+        if not loc:
+            return render_template(
+                "personal_signup.html",
+                error="Please enter your location so we can show nearby shop offers.",
+            ), 400
         conn = get_db_connection()
-        monthly_revenue = float(request.form["monthly_revenue"] or 0)
-        monthly_expenses = float(request.form["monthly_expenses"] or 0)
         conn.execute(
             """
             INSERT INTO business_profile
-            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target, account_type, location)
+            VALUES (1, ?, 'Personal', ?, ?, 'Personal', 0, 0, 0, 0, 'personal', ?)
             ON CONFLICT(id) DO UPDATE SET
                 owner_name = excluded.owner_name,
                 business_name = excluded.business_name,
@@ -660,7 +763,71 @@ def login():
                 monthly_revenue = excluded.monthly_revenue,
                 monthly_expenses = excluded.monthly_expenses,
                 marketing_spend = excluded.marketing_spend,
-                growth_target = excluded.growth_target
+                growth_target = excluded.growth_target,
+                account_type = 'personal',
+                location = excluded.location
+            """,
+            (
+                pick_text(request.form, "owner_name", "Member"),
+                pick_text(request.form, "email", "member@example.com"),
+                pick_text(request.form, "phone", ""),
+                loc,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        session["account_auth"] = "personal"
+        return redirect(url_for("marketing"))
+
+    return render_template("personal_signup.html", error=None)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    conn = get_db_connection()
+    existing = get_business_profile(conn)
+    if request.method == "GET" and existing and session_matches_profile(existing):
+        conn.close()
+        if get_account_type(existing) == "personal":
+            return redirect(url_for("marketing"))
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        loc = pick_text(request.form, "location", "")
+        if not loc:
+            conn.close()
+            selected_month = previous_month_key()
+            selected_row = None
+            existing_profile = existing if existing and get_account_type(existing) == "business" else None
+            return render_template(
+                "login.html",
+                profile=existing_profile,
+                active_page="business_profile",
+                form_mode="login",
+                selected_financial_month=selected_month,
+                selected_month_revenue="",
+                selected_month_expenses="",
+                location_error="Please enter your shop or business location.",
+            ), 400
+        monthly_revenue = float(request.form["monthly_revenue"] or 0)
+        monthly_expenses = float(request.form["monthly_expenses"] or 0)
+        conn.execute(
+            """
+            INSERT INTO business_profile
+            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target, account_type, location)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'business', ?)
+            ON CONFLICT(id) DO UPDATE SET
+                owner_name = excluded.owner_name,
+                business_name = excluded.business_name,
+                email = excluded.email,
+                phone = excluded.phone,
+                business_type = excluded.business_type,
+                monthly_revenue = excluded.monthly_revenue,
+                monthly_expenses = excluded.monthly_expenses,
+                marketing_spend = excluded.marketing_spend,
+                growth_target = excluded.growth_target,
+                account_type = 'business',
+                location = excluded.location
             """,
             (
                 request.form["owner_name"],
@@ -672,47 +839,102 @@ def login():
                 monthly_expenses,
                 float(request.form["marketing_spend"] or 0),
                 float(request.form["growth_target"] or 0),
+                loc,
             ),
         )
         update_current_month_snapshot(conn, monthly_revenue, monthly_expenses)
         save_selected_month_financial(conn, request.form)
         conn.commit()
         conn.close()
+        session["account_auth"] = "business"
         return redirect(url_for("dashboard"))
 
-    conn = get_db_connection()
     selected_month = previous_month_key()
     selected_row = conn.execute(
         "SELECT revenue, expenses FROM monthly_financials WHERE year_month = ?",
         (selected_month,),
     ).fetchone()
     conn.close()
+    login_profile = existing if existing and get_account_type(existing) == "business" else None
     return render_template(
         "login.html",
-        profile=None,
+        profile=login_profile,
         active_page="business_profile",
         form_mode="login",
         selected_financial_month=selected_month,
         selected_month_revenue=(selected_row["revenue"] if selected_row else ""),
         selected_month_expenses=(selected_row["expenses"] if selected_row else ""),
+        location_error="",
     )
 
 
 @app.route("/business-profile", methods=["GET", "POST"])
 def business_profile():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
     conn = get_db_connection()
+    profile = get_business_profile(conn)
+    if get_account_type(profile) == "personal":
+        if request.method == "POST":
+            loc = pick_text(request.form, "location", "")
+            if not loc:
+                conn.close()
+                return render_template(
+                    "personal_profile.html",
+                    profile=profile,
+                    error="Location is required so offers match your area.",
+                    active_page="business_profile",
+                ), 400
+            conn.execute(
+                """
+                UPDATE business_profile SET
+                    owner_name = ?,
+                    email = ?,
+                    phone = ?,
+                    location = ?
+                WHERE id = 1
+                """,
+                (
+                    pick_text(request.form, "owner_name", profile["owner_name"]),
+                    pick_text(request.form, "email", profile["email"]),
+                    pick_text(request.form, "phone", profile["phone"]),
+                    loc,
+                ),
+            )
+            conn.commit()
+            conn.close()
+            return redirect(url_for("marketing"))
+        conn.close()
+        return render_template(
+            "personal_profile.html",
+            profile=profile,
+            error=None,
+            active_page="business_profile",
+        )
+
     if request.method == "POST":
-        existing = get_business_profile(conn)
+        existing = profile
         existing_data = dict(existing) if existing else {}
         monthly_revenue = pick_float(request.form, "monthly_revenue", existing_data.get("monthly_revenue", 0))
         monthly_expenses = pick_float(request.form, "monthly_expenses", existing_data.get("monthly_expenses", 0))
+        loc = pick_text(request.form, "location", existing_data.get("location", ""))
+        if not loc:
+            conn.close()
+            return render_template(
+                "login.html",
+                profile=profile,
+                active_page="business_profile",
+                form_mode="profile",
+                selected_financial_month=previous_month_key(),
+                selected_month_revenue="",
+                selected_month_expenses="",
+                location_error="Please enter your shop or business location.",
+            ), 400
         conn.execute(
             """
             INSERT INTO business_profile
-            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target, account_type, location)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'business', ?)
             ON CONFLICT(id) DO UPDATE SET
                 owner_name = excluded.owner_name,
                 business_name = excluded.business_name,
@@ -722,7 +944,9 @@ def business_profile():
                 monthly_revenue = excluded.monthly_revenue,
                 monthly_expenses = excluded.monthly_expenses,
                 marketing_spend = excluded.marketing_spend,
-                growth_target = excluded.growth_target
+                growth_target = excluded.growth_target,
+                account_type = 'business',
+                location = excluded.location
             """,
             (
                 pick_text(request.form, "owner_name", existing_data.get("owner_name", "Owner Account")),
@@ -734,6 +958,7 @@ def business_profile():
                 monthly_expenses,
                 pick_float(request.form, "marketing_spend", existing_data.get("marketing_spend", 0)),
                 pick_float(request.form, "growth_target", existing_data.get("growth_target", 0)),
+                loc,
             ),
         )
         update_current_month_snapshot(conn, monthly_revenue, monthly_expenses)
@@ -745,7 +970,6 @@ def business_profile():
             return redirect(url_for("dashboard"))
         return redirect(url_for("business_profile"))
 
-    profile = get_business_profile(conn)
     selected_month = previous_month_key()
     selected_row = conn.execute(
         "SELECT revenue, expenses FROM monthly_financials WHERE year_month = ?",
@@ -760,13 +984,17 @@ def business_profile():
         selected_financial_month=selected_month,
         selected_month_revenue=(selected_row["revenue"] if selected_row else ""),
         selected_month_expenses=(selected_row["expenses"] if selected_row else ""),
+        location_error="",
     )
 
 
 @app.route("/dashboard")
 def dashboard():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     profile = get_business_profile(conn)
     metrics = query_metrics(conn)
@@ -785,7 +1013,10 @@ def dashboard():
 @app.route("/inventory", methods=["GET", "POST"])
 def inventory():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     if request.method == "POST":
         conn.execute(
@@ -838,7 +1069,10 @@ def inventory():
 @app.post("/inventory/restock/<int:product_id>")
 def restock_product(product_id):
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     restock_qty = max(1, int(request.form.get("restock_amount", 0) or 0))
     conn = get_db_connection()
     conn.execute(
@@ -859,7 +1093,10 @@ def restock_product(product_id):
 @app.post("/inventory/delete/<int:product_id>")
 def delete_product(product_id):
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     conn.execute("DELETE FROM inventory_products WHERE id = ?", (product_id,))
     conn.commit()
@@ -870,7 +1107,10 @@ def delete_product(product_id):
 @app.route("/orders", methods=["GET", "POST"])
 def orders():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     if request.method == "POST":
         next_id = conn.execute("SELECT COALESCE(MAX(id), 0) + 1001 FROM orders").fetchone()[0]
@@ -922,7 +1162,10 @@ def orders():
 @app.post("/orders/<int:order_id>/status")
 def update_order_status(order_id):
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     new_status = request.form.get("status", "Processing")
     conn = get_db_connection()
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
@@ -934,7 +1177,10 @@ def update_order_status(order_id):
 @app.post("/orders/delete/<int:order_id>")
 def delete_order(order_id):
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
     conn.commit()
@@ -945,9 +1191,29 @@ def delete_order(order_id):
 @app.route("/marketing", methods=["GET", "POST"])
 def marketing():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
     conn = get_db_connection()
-    if request.method == "POST":
+    profile = get_business_profile(conn)
+    acc = get_account_type(profile)
+
+    if request.method == "POST" and acc == "business":
+        action = request.form.get("form_action", "campaign")
+        if action == "discount":
+            pname = pick_text(request.form, "product_name", "")
+            pct = pick_float(request.form, "discount_percent", 0)
+            loc = normalize_location(profile["location"] or "")
+            if pname and pct > 0 and loc:
+                now = datetime.now().isoformat(timespec="seconds")
+                conn.execute(
+                    """
+                    INSERT INTO shop_discounts (product_name, discount_percent, shop_location, shop_name, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (pname, pct, loc, profile["business_name"], now),
+                )
+            conn.commit()
+            conn.close()
+            return redirect(url_for("marketing"))
         conn.execute(
             """
             INSERT INTO campaigns (title, description, segment, target_customers, expected_roi, priority, status)
@@ -967,31 +1233,94 @@ def marketing():
         conn.close()
         return redirect(url_for("marketing"))
 
-    campaigns = conn.execute("SELECT * FROM campaigns ORDER BY id DESC").fetchall()
-    segment_rows = conn.execute(
-        "SELECT segment, COUNT(*) as total FROM customers GROUP BY segment"
-    ).fetchall()
-    category_rows = conn.execute(
-        "SELECT category, SUM(price * stock) as value FROM inventory_products GROUP BY category"
-    ).fetchall()
-    metrics = query_metrics(conn)
+    if request.method == "POST" and acc == "personal":
+        conn.close()
+        return redirect(url_for("marketing"))
+
+    search_q = request.args.get("q", "").strip()
+    user_norm = normalize_location(profile["location"] or "")
+
+    discounts_for_template = []
+    if acc == "personal":
+        if user_norm:
+            if search_q:
+                like = f"%{search_q}%"
+                discounts_for_template = conn.execute(
+                    """
+                    SELECT * FROM shop_discounts
+                    WHERE shop_location = ?
+                      AND (lower(product_name) LIKE lower(?) OR lower(IFNULL(shop_name,'')) LIKE lower(?))
+                    ORDER BY id DESC
+                    """,
+                    (user_norm, f"%{search_q}%", f"%{search_q}%"),
+                ).fetchall()
+            else:
+                discounts_for_template = conn.execute(
+                    "SELECT * FROM shop_discounts WHERE shop_location = ? ORDER BY id DESC",
+                    (user_norm,),
+                ).fetchall()
+
+    campaigns = []
+    segment_rows = []
+    category_rows = []
+    metrics = None
+    if acc == "business":
+        campaigns = conn.execute("SELECT * FROM campaigns ORDER BY id DESC").fetchall()
+        segment_rows = conn.execute(
+            "SELECT segment, COUNT(*) as total FROM customers GROUP BY segment"
+        ).fetchall()
+        category_rows = conn.execute(
+            "SELECT category, SUM(price * stock) as value FROM inventory_products GROUP BY category"
+        ).fetchall()
+        metrics = query_metrics(conn)
+        if user_norm:
+            discounts_for_template = conn.execute(
+                "SELECT * FROM shop_discounts WHERE shop_location = ? ORDER BY id DESC",
+                (user_norm,),
+            ).fetchall()
+        else:
+            discounts_for_template = conn.execute(
+                "SELECT * FROM shop_discounts ORDER BY id DESC"
+            ).fetchall()
+
     conn.close()
     return render_template(
         "marketing.html",
         active_page="marketing",
+        is_personal=(acc == "personal"),
         campaigns=campaigns,
         segments=segment_rows,
         categories=category_rows,
         metrics=metrics,
+        discounts=discounts_for_template,
+        user_location_display=(profile["location"] or ""),
+        search_q=search_q,
     )
 
 
 @app.post("/marketing/<int:campaign_id>/launch")
 def launch_campaign(campaign_id):
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     conn.execute("UPDATE campaigns SET status = 'Launched' WHERE id = ?", (campaign_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("marketing"))
+
+
+@app.post("/marketing/discount/<int:discount_id>/delete")
+def delete_discount(discount_id):
+    if not business_profile_required():
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
+    conn = get_db_connection()
+    conn.execute("DELETE FROM shop_discounts WHERE id = ?", (discount_id,))
     conn.commit()
     conn.close()
     return redirect(url_for("marketing"))
@@ -1000,7 +1329,10 @@ def launch_campaign(campaign_id):
 @app.route("/finance", methods=["GET", "POST"])
 def finance():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     if request.method == "POST":
         conn.execute(
@@ -1046,10 +1378,57 @@ def finance():
     )
 
 
+@app.post("/finance/expense/<int:expense_id>/delete")
+def delete_expense(expense_id):
+    if not business_profile_required():
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
+    conn = get_db_connection()
+    conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("finance"))
+
+
+@app.post("/finance/expense/<int:expense_id>/update")
+def update_expense(expense_id):
+    if not business_profile_required():
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
+    conn = get_db_connection()
+    conn.execute(
+        """
+        UPDATE expenses SET
+            category = ?,
+            description = ?,
+            amount = ?,
+            expense_date = ?
+        WHERE id = ?
+        """,
+        (
+            pick_text(request.form, "category", "General"),
+            pick_text(request.form, "description", ""),
+            float(request.form.get("amount") or 0),
+            pick_text(request.form, "expense_date", date.today().isoformat()),
+            expense_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("finance"))
+
+
 @app.route("/customers", methods=["GET", "POST"])
 def customers():
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     if request.method == "POST":
         conn.execute(
@@ -1086,7 +1465,10 @@ def customers():
 @app.post("/customers/delete/<int:customer_id>")
 def delete_customer(customer_id):
     if not business_profile_required():
-        return redirect(url_for("login"))
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     conn.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
     conn.commit()
@@ -1149,6 +1531,11 @@ def assistant():
 
 @app.route("/assistant", methods=["GET", "POST"])
 def assistant():
+    if not business_profile_required():
+        return redirect(url_for("root"))
+    redir = require_business_user()
+    if redir:
+        return redir
     conn = get_db_connection()
     if request.method == "POST":
         user_message = request.form["message"].strip()

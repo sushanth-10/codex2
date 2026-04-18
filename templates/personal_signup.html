@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal account - BizAssist AI</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", sans-serif; }
+        body {
+            min-height: 100vh;
+            background: linear-gradient(160deg, #ecfdf5, #f8fafc);
+            display: grid;
+            place-items: center;
+            padding: 20px;
+        }
+        .card {
+            width: min(480px, 100%);
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+            padding: 24px;
+        }
+        h1 { font-size: 24px; margin-bottom: 8px; color: #0f172a; }
+        p { color: #64748b; font-size: 14px; margin-bottom: 18px; }
+        label { font-size: 13px; color: #475569; display: block; margin-bottom: 6px; }
+        input {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 10px;
+            font-size: 14px;
+            margin-bottom: 14px;
+        }
+        button {
+            width: 100%;
+            border: none;
+            background: #059669;
+            color: #fff;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 6px;
+        }
+        .err { color: #b91c1c; font-size: 14px; margin-bottom: 12px; }
+        .back { display: inline-block; margin-top: 14px; color: #2563eb; text-decoration: none; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Create a personal account</h1>
+        <p>A few details are enough. Your location is used to match offers from shops in the same area.</p>
+        {% if error %}<div class="err">{{ error }}</div>{% endif %}
+        <form method="post">
+            <label>Your name</label>
+            <input name="owner_name" required placeholder="Full name" autocomplete="name">
+            <label>Email</label>
+            <input type="email" name="email" required placeholder="you@example.com" autocomplete="email">
+            <label>Phone (optional)</label>
+            <input name="phone" placeholder="Phone number" autocomplete="tel">
+            <label>Your location (city, area, or neighbourhood)</label>
+            <input name="location" required placeholder="e.g. Indiranagar, Bengaluru" autocomplete="street-address">
+            <button type="submit">Continue to local offers</button>
+        </form>
+        <a class="back" href="{{ url_for('root') }}">← Back</a>
+    </div>
+</body>
+</html>

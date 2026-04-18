@@ -72,6 +72,9 @@
             <p>Enter shop/business and financial details. Net profit and all graphs will calculate from this data.</p>
         </div>
         <div class="content">
+            {% if location_error is defined and location_error %}
+            <p class="hint" style="color:#b91c1c; margin-bottom:14px;">{{ location_error }}</p>
+            {% endif %}
             <form method="post">
                 <div class="section-title">Personal & Business Details</div>
                 <div class="grid">
@@ -90,6 +93,10 @@
                     <div>
                         <label>Phone</label>
                         <input name="phone" {% if form_mode == "login" %}required{% endif %} value="{{ profile['phone'] if profile else '' }}">
+                    </div>
+                    <div class="full">
+                        <label>Shop / business location (city / area — used for local offers)</label>
+                        <input name="location" {% if form_mode == "login" %}required{% endif %} placeholder="e.g. MG Road, Bengaluru" value="{% if profile %}{{ profile['location'] or '' }}{% endif %}">
                     </div>
                     <div class="full">
                         <label>Shop / Business Type</label>

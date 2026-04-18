@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome - BizAssist AI</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: "Segoe UI", sans-serif; }
+        body {
+            min-height: 100vh;
+            background: linear-gradient(160deg, #eef2ff, #f8fafc);
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+        .card {
+            width: min(520px, 100%);
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+            padding: 28px;
+        }
+        h1 { font-size: 26px; margin-bottom: 8px; color: #0f172a; }
+        p { color: #64748b; margin-bottom: 22px; line-height: 1.5; }
+        .choices { display: flex; flex-direction: column; gap: 12px; }
+        a.choice {
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            padding: 16px 18px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
+            border: 2px solid transparent;
+        }
+        a.business {
+            background: #2563eb;
+            color: #fff;
+        }
+        a.business:hover { background: #1d4ed8; }
+        a.personal {
+            background: #f8fafc;
+            color: #1e293b;
+            border-color: #cbd5e1;
+        }
+        a.personal:hover { background: #f1f5f9; }
+        small { display: block; margin-top: 16px; color: #94a3b8; font-size: 12px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>How do you want to use BizAssist?</h1>
+        <p>Choose a business account to manage your shop, or a personal account to see local discounts near you.</p>
+        <div class="choices">
+            <a class="choice business" href="{{ url_for('login') }}">Business account</a>
+            <a class="choice personal" href="{{ url_for('personal_signup') }}">Personal account</a>
+        </div>
+        <small>Business: full dashboard. Personal: offers matched by the location you enter.</small>
+    </div>
+</body>
+</html>

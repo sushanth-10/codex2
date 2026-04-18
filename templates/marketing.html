@@ -1,12 +1,73 @@
 {% extends "base.html" %}
 {% block title %}Marketing - BizAssist AI{% endblock %}
 {% block content %}
+{% if is_personal %}
+<h1 class="page-title">Local discounts for you</h1>
+<p class="page-subtitle">Offers from shops that use the <b>same location text</b> as you ({{ user_location_display or "not set" }}). Search by product or shop name.</p>
+
+<div class="panel">
+    <form method="get" class="form-grid" style="grid-template-columns: 2fr 1fr auto; align-items: end;">
+        <div>
+            <label class="muted" style="display:block; margin-bottom:6px;">Search</label>
+            <input class="input" name="q" value="{{ search_q }}" placeholder="Product or shop name">
+        </div>
+        <div></div>
+        <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+</div>
+
+<div class="panel">
+    <h3 class="section-title">Offers at your location</h3>
+    {% if not user_location_display %}
+    <p class="muted">Add your location under <a href="/business-profile">My account</a> to see matching offers.</p>
+    {% elif discounts|length == 0 %}
+    <p class="muted">No discounts yet for this location. When a nearby shop adds a product offer with the same location text, it will show here.</p>
+    {% else %}
+    {% for d in discounts %}
+    <div style="border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:10px;">
+        <b>{{ d["product_name"] }}</b>
+        <p class="muted" style="margin-top:6px;">{{ (d["discount_percent"]|float)|round(1) }}% off{% if d["shop_name"] %} at <b>{{ d["shop_name"] }}</b>{% endif %}</p>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+
+{% else %}
 <h1 class="page-title">Marketing Intelligence</h1>
-<p class="page-subtitle">Create campaigns and launch them based on customer segments.</p>
+<p class="page-subtitle">Create campaigns and publish product discounts. Discounts use your <b>business profile location</b> so personal shoppers in the same area can see them.</p>
+
+<div class="panel">
+    <h3 class="section-title">Add product discount</h3>
+    <p class="muted" style="margin-bottom:10px;">Location on file: <b>{{ user_location_display or "— add under Business Profile" }}</b> (normalized for matching).</p>
+    <form method="post" class="form-grid" style="grid-template-columns: 1fr 1fr auto;">
+        <input type="hidden" name="form_action" value="discount">
+        <input class="input" name="product_name" placeholder="Product name" required>
+        <input class="input" type="number" step="0.1" name="discount_percent" placeholder="Discount %" required>
+        <button class="btn btn-primary" type="submit">Add discount</button>
+    </form>
+</div>
+
+{% if discounts and discounts|length > 0 %}
+<div class="panel">
+    <h3 class="section-title">Your published discounts</h3>
+    {% for d in discounts %}
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; border-bottom:1px solid #e5e7eb; padding:10px 0;">
+        <div>
+            <b>{{ d["product_name"] }}</b>
+            <span class="muted"> — {{ (d["discount_percent"]|float)|round(1) }}% off</span>
+        </div>
+        <form method="post" action="{{ url_for('delete_discount', discount_id=d['id']) }}" onsubmit="return confirm('Remove this discount?');">
+            <button class="btn btn-secondary" type="submit">Delete</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
 
 <div class="panel">
     <h3 class="section-title">Add Campaign</h3>
     <form method="post" class="form-grid">
+        <input type="hidden" name="form_action" value="campaign">
         <input class="input" name="title" placeholder="Campaign Title" required>
         <input class="input" name="segment" placeholder="Target Segment (VIP, New, At Risk)" required>
         <input class="input" type="number" name="target_customers" placeholder="Target Customers" required>
@@ -67,4 +128,5 @@ new Chart(document.getElementById("categoryChart"), {
     options: { plugins: { legend: { display: false } } }
 });
 </script>
+{% endif %}
 {% endblock %}

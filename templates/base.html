@@ -19,7 +19,44 @@
         .content { flex: 1; padding: 24px; }
         .topbar { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-bottom: 16px; }
         .pill { background: #dcfce7; color: #166534; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
-        .avatar { width: 36px; height: 36px; border-radius: 50%; background: #6366f1; color: #fff; display: grid; place-items: center; font-weight: 700; }
+        .user-menu { position: relative; }
+        .user-menu summary {
+            list-style: none;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #6366f1;
+            color: #fff;
+            display: grid;
+            place-items: center;
+            font-weight: 700;
+            border: 2px solid transparent;
+        }
+        .user-menu summary::-webkit-details-marker { display: none; }
+        .user-menu[open] summary { border-color: #c7d2fe; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25); }
+        .user-dropdown {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 8px);
+            min-width: 160px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+            padding: 8px;
+            z-index: 20;
+        }
+        .user-dropdown a {
+            display: block;
+            padding: 10px 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #b91c1c;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .user-dropdown a:hover { background: #fef2f2; }
         .page-title { margin-bottom: 6px; font-size: 36px; }
         .page-subtitle { color: #6b7280; margin-bottom: 18px; }
         .ai-box { background: #e8f1ff; border: 1px solid #c6dbff; border-radius: 14px; padding: 16px; margin-bottom: 18px; }
@@ -74,6 +111,10 @@
             </div>
         </div>
         <nav class="nav">
+            {% if is_personal_account %}
+            <a href="/marketing" class="{{ 'active' if active_page == 'marketing' else '' }}">Local offers</a>
+            <a href="/business-profile" class="{{ 'active' if active_page == 'business_profile' else '' }}">My account</a>
+            {% else %}
             <a href="/dashboard" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
             <a href="/inventory" class="{{ 'active' if active_page == 'inventory' else '' }}">Inventory</a>
             <a href="/orders" class="{{ 'active' if active_page == 'orders' else '' }}">Orders</a>
@@ -82,6 +123,7 @@
             <a href="/customers" class="{{ 'active' if active_page == 'customers' else '' }}">Customers</a>
             <a href="/assistant" class="{{ 'active' if active_page == 'assistant' else '' }}">AI Assistant</a>
             <a href="/business-profile" class="{{ 'active' if active_page == 'business_profile' else '' }}">Business Profile</a>
+            {% endif %}
         </nav>
         <div class="promo">
             <b>AI Powered</b>
@@ -93,7 +135,12 @@
         <div class="topbar">
             <span class="pill">AI Active</span>
             <div>{{ business_name }}<br><span class="muted">{{ owner_name }}</span></div>
-            <div class="avatar">{{ avatar_text }}</div>
+            <details class="user-menu">
+                <summary title="Account">{{ avatar_text }}</summary>
+                <div class="user-dropdown">
+                    <a href="/logout">Log out</a>
+                </div>
+            </details>
         </div>
         {% block content %}{% endblock %}
     </main>

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}My account - BizAssist AI{% endblock %}
+{% block content %}
+<h1 class="page-title">My account</h1>
+<p class="page-subtitle">Update your details. Changing location updates which shop offers you see (use the same wording as the shop for best matches).</p>
+{% if error %}<div class="panel" style="border-color:#fecaca; background:#fef2f2;"><p style="color:#b91c1c;">{{ error }}</p></div>{% endif %}
+<div class="panel">
+    <form method="post" class="form-grid" style="grid-template-columns: repeat(2, minmax(140px, 1fr));">
+        <div>
+            <label class="muted" style="display:block; margin-bottom:6px;">Name</label>
+            <input class="input" name="owner_name" required value="{{ profile['owner_name'] }}">
+        </div>
+        <div>
+            <label class="muted" style="display:block; margin-bottom:6px;">Email</label>
+            <input class="input" type="email" name="email" required value="{{ profile['email'] }}">
+        </div>
+        <div>
+            <label class="muted" style="display:block; margin-bottom:6px;">Phone</label>
+            <input class="input" name="phone" value="{{ profile['phone'] or '' }}">
+        </div>
+        <div>
+            <label class="muted" style="display:block; margin-bottom:6px;">Location</label>
+            <input class="input" name="location" required value="{{ profile['location'] or '' }}" placeholder="City / area">
+        </div>
+        <div style="grid-column: 1 / -1;">
+            <button class="btn btn-primary" type="submit">Save</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
