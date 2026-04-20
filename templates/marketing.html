@@ -73,6 +73,11 @@
 {% else %}
 <h1 class="page-title">Marketing Intelligence</h1>
 <p class="page-subtitle">Create campaigns and publish product discounts. Discounts use your <b>business profile location</b> so personal shoppers in the same area can see them.</p>
+{% if mail_status %}
+<div class="panel" style="margin-top:12px;">
+    <p class="muted"><b>Campaign mail status:</b> {{ mail_status }}</p>
+</div>
+{% endif %}
 
 <div class="panel">
     <h3 class="section-title">Add product discount</h3>

@@ -3,6 +3,8 @@ import json
 import os
 import re
 import sqlite3
+import smtplib
+from email.message import EmailMessage
 import google.generativeai as genai
 from flask import Flask, redirect, render_template, request, session, url_for
 
@@ -163,6 +165,72 @@ def get_db_connection():
     return conn
 
 
+def add_sample_customers(conn):
+    """Ensure requested sample customers exist for campaign targeting."""
+    samples = [
+        ("Aarav Kumar", "sushanth2625@gmail.com"),
+        ("Diya Sharma", "gubbarakshita@gmail.com"),
+        ("ghsrijan", "ghsrijan@example.com"),
+    ]
+    today = date.today().isoformat()
+    for name, email in samples:
+        exists = conn.execute("SELECT id FROM customers WHERE lower(email) = lower(?)", (email,)).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """
+            INSERT INTO customers
+            (name, email, phone, segment, total_orders, total_spent, last_purchase)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (name, email, "0000000000", "New", 0, 0, today),
+        )
+
+
+def send_campaign_emails(conn, campaign_id, sender_email, sender_password):
+    """Send campaign email to all customers using business login credentials."""
+    campaign = conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
+    if not campaign:
+        return False, "Campaign not found."
+    customers = conn.execute(
+        "SELECT name, email FROM customers WHERE trim(IFNULL(email, '')) != '' ORDER BY id DESC"
+    ).fetchall()
+    if not customers:
+        return False, "No customer emails found in Customers page."
+    if not sender_email or not sender_password:
+        return False, "Business login email/password not saved. Please login again and save credentials."
+
+    recipients = [c["email"].strip() for c in customers if (c["email"] or "").strip()]
+    if not recipients:
+        return False, "No valid customer email addresses found."
+
+    message = EmailMessage()
+    message["Subject"] = f"New campaign: {campaign['title']}"
+    message["From"] = sender_email
+    message["To"] = sender_email
+    message["Bcc"] = ", ".join(recipients)
+    message.set_content(
+        f"""Hello,
+
+{campaign['title']}
+{campaign['description']}
+
+Target segment: {campaign['segment']}
+Expected ROI: {campaign['expected_roi']}%
+
+Thanks,
+BizAssist Campaign Team
+"""
+    )
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=25) as smtp:
+            smtp.login(sender_email, sender_password)
+            smtp.send_message(message)
+    except Exception as exc:
+        return False, f"Email send failed: {exc!s}"
+    return True, f"Campaign launched and emailed to {len(recipients)} customers."
+
+
 def format_inr(value):
     try:
         amount = float(value or 0)
@@ -264,7 +332,9 @@ def init_db():
             marketing_spend REAL NOT NULL DEFAULT 0,
             growth_target REAL NOT NULL DEFAULT 0,
             account_type TEXT NOT NULL DEFAULT 'business',
-            location TEXT NOT NULL DEFAULT ''
+            location TEXT NOT NULL DEFAULT '',
+            login_email TEXT NOT NULL DEFAULT '',
+            login_password TEXT NOT NULL DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS shop_discounts (
@@ -295,6 +365,8 @@ def init_db():
     for stmt in (
         "ALTER TABLE business_profile ADD COLUMN account_type TEXT NOT NULL DEFAULT 'business'",
         "ALTER TABLE business_profile ADD COLUMN location TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE business_profile ADD COLUMN login_email TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE business_profile ADD COLUMN login_password TEXT NOT NULL DEFAULT ''",
     ):
         try:
             conn.execute(stmt)
@@ -317,6 +389,7 @@ def init_db():
         pass
     conn.commit()
     seed_demo_data(conn)
+    add_sample_customers(conn)
     conn.close()
 
 
@@ -897,10 +970,7 @@ def build_assistant_response(conn, user_message):
 
 
 def assistant_reset_welcome():
-    return (
-        "Hello! I can answer the 30 built-in questions without any API key. "
-        "For other topics, add a Gemini API key in settings or environment."
-    )
+    return "hello how can i help you today"
 
 
 def get_business_profile(conn):
@@ -1078,8 +1148,8 @@ def login():
         conn.execute(
             """
             INSERT INTO business_profile
-            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target, account_type, location)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'business', ?)
+            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target, account_type, location, login_email, login_password)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'business', ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 owner_name = excluded.owner_name,
                 business_name = excluded.business_name,
@@ -1091,7 +1161,9 @@ def login():
                 marketing_spend = excluded.marketing_spend,
                 growth_target = excluded.growth_target,
                 account_type = 'business',
-                location = excluded.location
+                location = excluded.location,
+                login_email = excluded.login_email,
+                login_password = excluded.login_password
             """,
             (
                 request.form["owner_name"],
@@ -1104,6 +1176,8 @@ def login():
                 float(request.form["marketing_spend"] or 0),
                 float(request.form["growth_target"] or 0),
                 loc,
+                pick_text(request.form, "login_email", ""),
+                pick_text(request.form, "login_password", ""),
             ),
         )
         update_current_month_snapshot(conn, monthly_revenue, monthly_expenses)
@@ -1197,8 +1271,8 @@ def business_profile():
         conn.execute(
             """
             INSERT INTO business_profile
-            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target, account_type, location)
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'business', ?)
+            (id, owner_name, business_name, email, phone, business_type, monthly_revenue, monthly_expenses, marketing_spend, growth_target, account_type, location, login_email, login_password)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'business', ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 owner_name = excluded.owner_name,
                 business_name = excluded.business_name,
@@ -1210,7 +1284,9 @@ def business_profile():
                 marketing_spend = excluded.marketing_spend,
                 growth_target = excluded.growth_target,
                 account_type = 'business',
-                location = excluded.location
+                location = excluded.location,
+                login_email = excluded.login_email,
+                login_password = excluded.login_password
             """,
             (
                 pick_text(request.form, "owner_name", existing_data.get("owner_name", "Owner Account")),
@@ -1223,6 +1299,8 @@ def business_profile():
                 pick_float(request.form, "marketing_spend", existing_data.get("marketing_spend", 0)),
                 pick_float(request.form, "growth_target", existing_data.get("growth_target", 0)),
                 loc,
+                pick_text(request.form, "login_email", existing_data.get("login_email", "")),
+                pick_text(request.form, "login_password", existing_data.get("login_password", "")),
             ),
         )
         update_current_month_snapshot(conn, monthly_revenue, monthly_expenses)
@@ -1588,6 +1666,7 @@ def marketing():
         recent_all_discounts=recent_all_discounts,
         user_location_display=(profile["location"] or ""),
         search_q=search_q,
+        mail_status=request.args.get("mail_status", ""),
     )
 
 
@@ -1599,10 +1678,16 @@ def launch_campaign(campaign_id):
     if redir:
         return redir
     conn = get_db_connection()
-    conn.execute("UPDATE campaigns SET status = 'Launched' WHERE id = ?", (campaign_id,))
+    profile = get_business_profile(conn)
+    sender_email = (profile["login_email"] or "").strip() if profile else ""
+    sender_password = (profile["login_password"] or "").strip() if profile else ""
+    ok, message = send_campaign_emails(conn, campaign_id, sender_email, sender_password)
+    next_status = "Launched" if ok else "Ready"
+    conn.execute("UPDATE campaigns SET status = ? WHERE id = ?", (next_status, campaign_id))
+    add_sample_customers(conn)
     conn.commit()
     conn.close()
-    return redirect(url_for("marketing"))
+    return redirect(url_for("marketing", mail_status=message))
 
 
 @app.post("/marketing/discount/<int:discount_id>/delete")
@@ -1744,6 +1829,8 @@ def customers():
         conn.close()
         return redirect(url_for("customers"))
 
+    add_sample_customers(conn)
+    conn.commit()
     rows = conn.execute("SELECT * FROM customers ORDER BY id DESC").fetchall()
     metrics = query_metrics(conn)
     conn.close()

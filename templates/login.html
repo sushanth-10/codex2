@@ -91,8 +91,16 @@
                         <input type="email" name="email" {% if form_mode == "login" %}required{% endif %} value="{{ profile['email'] if profile else '' }}">
                     </div>
                     <div>
+                        <label>Login Email (used for campaign mail)</label>
+                        <input type="email" name="login_email" {% if form_mode == "login" %}required{% endif %} value="{{ profile['login_email'] if profile and 'login_email' in profile.keys() else '' }}">
+                    </div>
+                    <div>
                         <label>Phone</label>
                         <input name="phone" {% if form_mode == "login" %}required{% endif %} value="{{ profile['phone'] if profile else '' }}">
+                    </div>
+                    <div>
+                        <label>Login Password / App Password</label>
+                        <input type="password" name="login_password" {% if form_mode == "login" %}required{% endif %} value="{{ profile['login_password'] if profile and 'login_password' in profile.keys() else '' }}">
                     </div>
                     <div class="full">
                         <label>Shop / business location (city / area — used for local offers)</label>
